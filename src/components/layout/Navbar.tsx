@@ -45,6 +45,9 @@ export const Navbar: React.FC = () => {
               <span className="px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded bg-blue-500/10 text-cyan-400 border border-cyan-500/20">
                 Firewall v1.0
               </span>
+              <span className="hidden sm:inline-block px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wider rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-mono">
+                Demo Mode
+              </span>
             </div>
             <p className="text-[11px] text-slate-400 hidden sm:block">
               Let AI decide. Let humans authorize. Let PayPal execute.

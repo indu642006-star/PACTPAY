@@ -16,6 +16,7 @@ import { TransactionGrid } from './components/transactions/TransactionGrid';
 import { AuditLogViewer } from './components/audit/AuditLogViewer';
 import { AnalyticsView } from './components/analytics/AnalyticsView';
 import { PayPalConsole } from './components/paypal/PayPalConsole';
+import { HackathonDemoBar } from './components/demo/HackathonDemoBar';
 import { 
   Shield, 
   Menu, 
@@ -61,6 +62,7 @@ function PactPayApp() {
   return (
     <div className="min-h-screen bg-[#050a17] text-slate-100 flex flex-col selection:bg-cyan-500/30 selection:text-cyan-200">
       <Navbar />
+      <HackathonDemoBar onNavigate={setCurrentTab} />
 
       {/* Mobile Nav Top Bar */}
       <div className="lg:hidden px-4 py-2.5 bg-[#070e22] border-b border-slate-800 flex items-center justify-between sticky top-16 z-30">

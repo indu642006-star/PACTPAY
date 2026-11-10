@@ -126,9 +126,13 @@ export const TransactionGrid: React.FC = () => {
       cellRenderer: (params: ICellRendererParams<TransactionRecord>) => (
         <div className="flex items-center gap-1.5 font-mono text-cyan-300 font-bold">
           <span>{params.value}</span>
-          {params.data?.isSampleData && (
-            <span className="text-[9px] px-1 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30 font-sans">
-              Sample
+          {params.data?.isSampleData ? (
+            <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 font-mono font-semibold">
+              SAMPLE
+            </span>
+          ) : (
+            <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-mono font-semibold">
+              LIVE
             </span>
           )}
         </div>
@@ -514,6 +518,12 @@ export const TransactionGrid: React.FC = () => {
               </div>
 
               <div className="space-y-2">
+                <div className="flex justify-between py-1 border-b border-slate-800/60">
+                  <span className="text-slate-400">Data Origin:</span>
+                  <span className={selectedTx.isSampleData ? 'text-amber-300 font-mono text-[11px] font-semibold' : 'text-emerald-400 font-mono text-[11px] font-semibold'}>
+                    {selectedTx.isSampleData ? 'SAMPLE DATA (Hackathon Demo Seed)' : 'LIVE GATEWAY ATTEMPT'}
+                  </span>
+                </div>
                 <div className="flex justify-between py-1 border-b border-slate-800/60">
                   <span className="text-slate-400">Product / Item:</span>
                   <span className="text-slate-200 font-semibold text-right max-w-[260px] truncate">{selectedTx.product}</span>

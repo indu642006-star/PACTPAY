@@ -123,4 +123,5 @@ export interface AuditLogEntry {
   details: Record<string, any>;
   timestamp: string;
   auditHash: string;
+  isSampleData?: boolean;
 }

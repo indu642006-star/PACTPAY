@@ -33,11 +33,11 @@ export const AIPurchaseAssistant: React.FC<AIPurchaseAssistantProps> = ({ onNavi
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const samplePrompts = [
-    { text: 'Buy a wireless keyboard under ₹2,000.', desc: 'Standard gadget within limit', tag: 'Safe' },
-    { text: 'Order 3 ergonomic vertical mice from Amazon under ₹4,500.', desc: 'Workstation hardware', tag: 'Safe' },
-    { text: 'Purchase cloud hosting credits on DigitalOcean under $50.', desc: 'Developer infrastructure', tag: 'Safe' },
-    { text: 'Purchase VIP tokens on BetOnline casino for ₹50,000.', desc: 'Triggers merchant blacklist & spending ceiling', tag: 'Firewall Block Test' },
-    { text: 'Buy a wireless keyboard under ₹2,000.', desc: 'Duplicate test (run twice within 15 mins)', tag: 'Duplicate Test' },
+    { text: 'Buy a wireless keyboard under ₹2,000.', desc: 'Standard gadget within limit', tag: 'Safe', curr: 'INR' },
+    { text: 'Order 3 ergonomic vertical mice from Amazon under ₹4,500.', desc: 'Workstation hardware', tag: 'Safe', curr: 'INR' },
+    { text: 'Purchase cloud hosting credits on DigitalOcean under $50.', desc: 'Developer infrastructure', tag: 'Safe', curr: 'USD' },
+    { text: 'Purchase VIP tokens on BetOnline casino for ₹50,000.', desc: 'Triggers merchant blacklist & spending ceiling', tag: 'Firewall Block Test', curr: 'INR' },
+    { text: 'Buy a wireless keyboard under ₹2,000.', desc: 'Duplicate test (run twice within 15 mins)', tag: 'Duplicate Test', curr: 'INR' },
   ];
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -138,13 +138,19 @@ export const AIPurchaseAssistant: React.FC<AIPurchaseAssistantProps> = ({ onNavi
 
         {/* Quick Sample Prompts */}
         <div className="space-y-2 pt-2 border-t border-slate-800/60">
-          <span className="text-[11px] font-semibold text-slate-400">Try Sample Prompts:</span>
+          <div className="flex items-center justify-between">
+            <span className="text-[11px] font-semibold text-slate-400">Hackathon Demo Scenarios (1-Click Test):</span>
+            <span className="text-[10px] text-cyan-400/80 font-mono">Sets prompt & matching currency</span>
+          </div>
           <div className="flex flex-wrap gap-2">
             {samplePrompts.map((sp, idx) => (
               <button
                 key={idx}
                 type="button"
-                onClick={() => setPrompt(sp.text)}
+                onClick={() => {
+                  setPrompt(sp.text);
+                  if (sp.curr) setCurrency(sp.curr);
+                }}
                 className="text-left px-2.5 py-1.5 rounded-lg bg-slate-900/60 hover:bg-slate-800 border border-slate-800 hover:border-cyan-500/40 text-xs text-slate-300 transition-colors flex items-center gap-2 group"
               >
                 <span className="group-hover:text-cyan-300 font-medium">"{sp.text}"</span>

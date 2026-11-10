@@ -144,6 +144,15 @@ export const AuditLogViewer: React.FC = () => {
                       </button>
 
                       <span className="font-mono text-cyan-400 font-bold">{log.id}</span>
+                      {log.isSampleData ? (
+                        <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30">
+                          SAMPLE SEED
+                        </span>
+                      ) : (
+                        <span className="px-1.5 py-0.5 rounded text-[9px] font-mono font-bold bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
+                          LIVE RECORD
+                        </span>
+                      )}
                       {getActorBadge(log.actor)}
                     </div>
 

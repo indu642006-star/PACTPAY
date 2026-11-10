@@ -15,7 +15,9 @@ import {
   DollarSign,
   Store,
   Clock,
-  Sparkles
+  Sparkles,
+  Code2,
+  Info
 } from 'lucide-react';
 import { usePactPay } from '../../context/PactPayContext';
 import { useAuth } from '../../context/AuthContext';
@@ -30,6 +32,7 @@ export const HumanApprovalGate: React.FC = () => {
   const [rejectReason, setRejectReason] = useState('');
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
+  const [inspectPayloadReq, setInspectPayloadReq] = useState<PurchaseRequest | null>(null);
 
   // Filter requests that are awaiting human decision OR human-approved awaiting PayPal execution
   const pendingRequests = requests.filter(r => r.status === 'guardian_approved');
@@ -151,7 +154,18 @@ export const HumanApprovalGate: React.FC = () => {
               >
                 <div>
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-mono font-bold text-cyan-400">{req.id}</span>
+                    <div className="flex items-center gap-2">
+                      <span className="text-xs font-mono font-bold text-cyan-400">{req.id}</span>
+                      {req.isSampleData ? (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 border border-amber-500/40 font-mono font-semibold">
+                          SAMPLE PROPOSAL
+                        </span>
+                      ) : (
+                        <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-mono font-semibold">
+                          LIVE PROPOSAL
+                        </span>
+                      )}
+                    </div>
                     <span className="px-2 py-0.5 text-[10px] rounded-full bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 font-semibold">
                       Human Authorized
                     </span>
@@ -163,6 +177,13 @@ export const HumanApprovalGate: React.FC = () => {
                   {req.humanDecision?.note && (
                     <p className="text-[11px] italic text-slate-400 mt-1">"{req.humanDecision.note}"</p>
                   )}
+                  <button
+                    onClick={() => setInspectPayloadReq(req)}
+                    className="mt-2 text-[11px] text-cyan-400 hover:text-cyan-300 flex items-center gap-1 font-medium"
+                  >
+                    <Code2 className="w-3.5 h-3.5" />
+                    <span>Inspect PayPal REST v2 Payload</span>
+                  </button>
                 </div>
 
                 <div className="pt-2 border-t border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -417,6 +438,89 @@ export const HumanApprovalGate: React.FC = () => {
                 className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs shadow-md transition-colors"
               >
                 Confirm Rejection
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PayPal Sandbox Execution Payload Inspector Modal */}
+      {inspectPayloadReq && (
+        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="w-full max-w-xl rounded-2xl bg-[#09122a] border border-cyan-500/40 p-6 space-y-4 shadow-2xl animate-fadeIn">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-blue-500/20 text-cyan-400 border border-blue-500/30">
+                  <CreditCard className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">PayPal REST v2 Order Payload</h3>
+                  <p className="text-xs text-slate-400">Target Gateway: api-m.sandbox.paypal.com</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setInspectPayloadReq(null)}
+                className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
+                <span className="text-[10px] uppercase font-bold text-slate-400">Target REST API Route</span>
+                <p className="font-mono text-cyan-300 text-[11px]">
+                  POST https://api-m.sandbox.paypal.com/v2/checkout/orders
+                </p>
+              </div>
+
+              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
+                <span className="text-[10px] uppercase font-bold text-slate-400">Server Authentication &amp; Headers</span>
+                <pre className="font-mono text-slate-300 text-[10px] space-y-0.5">
+                  <div>Authorization: Basic Base64(PAYPAL_CLIENT_ID:PAYPAL_CLIENT_SECRET)</div>
+                  <div>PayPal-Request-Id: pactpay-idempotent-{inspectPayloadReq.id}</div>
+                  <div>Content-Type: application/json</div>
+                </pre>
+              </div>
+
+              <div>
+                <span className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">Request Body (JSON)</span>
+                <pre className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-[11px] font-mono text-cyan-300 overflow-x-auto max-h-48">
+{JSON.stringify({
+  intent: "CAPTURE",
+  purchase_units: [
+    {
+      reference_id: inspectPayloadReq.id,
+      description: inspectPayloadReq.product,
+      custom_id: `pactpay-officer-auth-${inspectPayloadReq.id}`,
+      amount: {
+        currency_code: inspectPayloadReq.currency,
+        value: inspectPayloadReq.estimatedAmount.toFixed(2),
+      },
+    },
+  ],
+  application_context: {
+    brand_name: "PACTPAY Autonomous Firewall",
+    user_action: "CONTINUE",
+  },
+}, null, 2)}
+                </pre>
+              </div>
+
+              <div className="p-3 rounded-xl bg-amber-950/30 border border-amber-800/40 text-[11px] text-amber-200 flex items-start gap-2">
+                <Info className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
+                <span>
+                  <strong>Hackathon Verification Notice:</strong> This real payload is dispatched by <code className="text-cyan-300 font-mono">server/paypal.ts</code>. PACTPAY refuses to simulate captures; configure <code className="text-cyan-300 font-mono">PAYPAL_CLIENT_ID</code> and <code className="text-cyan-300 font-mono">PAYPAL_CLIENT_SECRET</code> to finalize live sandbox captures.
+                </span>
+              </div>
+            </div>
+
+            <div className="pt-2 flex justify-end">
+              <button
+                onClick={() => setInspectPayloadReq(null)}
+                className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs rounded-xl"
+              >
+                Close Inspector
               </button>
             </div>
           </div>

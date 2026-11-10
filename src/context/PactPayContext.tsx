@@ -34,6 +34,8 @@ interface PactPayContextType {
   firestoreError: string | null;
   activeRequestId: string | null;
   paypalStatus: PayPalConfigStatus | null;
+  isDemoMode: boolean;
+  toggleDemoMode: () => void;
   refreshPayPalStatus: () => Promise<PayPalConfigStatus>;
   createPurchaseRequest: (prompt: string, fallbackCurrency?: string) => Promise<PurchaseRequest>;
   evaluateGuardian: (requestId: string) => Promise<GuardianEvaluation>;
@@ -98,6 +100,44 @@ const initialSampleRequests: PurchaseRequest[] = [
     id: 'REQ-102',
     userId: 'pactpay-officer-001',
     userEmail: 'indu642006@gmail.com',
+    naturalPrompt: 'Renew DigitalOcean Kubernetes cloud cluster credits for $65 under $100 budget',
+    product: 'DigitalOcean Kubernetes Hosting Credits',
+    budget: 100,
+    estimatedAmount: 65,
+    currency: 'USD',
+    merchant: 'DigitalOcean',
+    intentSummary: 'Cloud infrastructure hosting credits renewal for engineering sprint',
+    category: 'Software & Cloud',
+    urgency: 'normal',
+    status: 'human_approved',
+    isSampleData: true,
+    createdAt: new Date(Date.now() - 25 * 60 * 1000).toISOString(),
+    updatedAt: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
+    guardianEvaluation: {
+      passed: true,
+      status: 'APPROVED_BY_GUARDIAN',
+      riskScore: 8,
+      evaluatedAt: new Date(Date.now() - 24 * 60 * 1000).toISOString(),
+      summary: 'Verified infrastructure vendor. Low risk profile. Stated price $65 within budget $100.',
+      checks: [
+        { id: 'CHK-D1', name: 'Amount & Budget Check', category: 'AMOUNT', status: 'PASS', message: 'Amount $65 within budget $100' },
+        { id: 'CHK-D2', name: 'Per-Transaction Limit', category: 'LIMIT', status: 'PASS', message: 'Below USD policy threshold' },
+        { id: 'CHK-D3', name: 'Merchant Whitelist', category: 'MERCHANT', status: 'PASS', message: 'Merchant "DigitalOcean" is whitelisted cloud provider' },
+        { id: 'CHK-D4', name: 'Duplicate Order Guard', category: 'DUPLICATE', status: 'PASS', message: 'No duplicates detected' },
+      ],
+    },
+    humanDecision: {
+      approved: true,
+      decidedAt: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
+      authorizedBy: 'FinTech Officer (indu642006@gmail.com)',
+      note: 'Verified sprint cluster renewal invoice. Authorized for PayPal Sandbox payment execution.',
+      authMethod: 'MANUAL_SIGN_OFF',
+    },
+  },
+  {
+    id: 'REQ-103',
+    userId: 'pactpay-officer-001',
+    userEmail: 'indu642006@gmail.com',
     naturalPrompt: 'Purchase 25 VIP Casino betting vouchers on BetOnline for $500',
     product: 'VIP Casino Betting Vouchers (x25)',
     budget: 500,
@@ -124,38 +164,83 @@ const initialSampleRequests: PurchaseRequest[] = [
       ],
     },
   },
+  {
+    id: 'REQ-104',
+    userId: 'pactpay-officer-001',
+    userEmail: 'indu642006@gmail.com',
+    naturalPrompt: 'Procure 4 Dell UltraSharp 32-inch 6K monitors for ₹280,000 on Dell.com',
+    product: 'Dell UltraSharp 32-inch 6K Monitors (x4)',
+    budget: 300000,
+    estimatedAmount: 280000,
+    currency: 'INR',
+    merchant: 'Dell',
+    intentSummary: 'High-end monitor hardware procurement exceeding policy bounds',
+    category: 'Hardware',
+    urgency: 'low',
+    status: 'guardian_blocked',
+    isSampleData: true,
+    createdAt: new Date(Date.now() - 60 * 60 * 1000).toISOString(),
+    updatedAt: new Date(Date.now() - 59 * 60 * 1000).toISOString(),
+    guardianEvaluation: {
+      passed: false,
+      status: 'BLOCKED_BY_GUARDIAN',
+      riskScore: 88,
+      evaluatedAt: new Date(Date.now() - 59 * 60 * 1000).toISOString(),
+      summary: 'Payment Guardian BLOCKED: Amount ₹280,000 exceeds maximum per-transaction policy cap (₹15,000).',
+      checks: [
+        { id: 'CHK-H1', name: 'Per-Transaction Spending Limit', category: 'LIMIT', status: 'FAIL', message: 'Amount ₹280,000 exceeds single transaction policy cap of ₹15,000' },
+        { id: 'CHK-H2', name: 'Daily Cumulative Limit', category: 'LIMIT', status: 'FAIL', message: 'Amount ₹280,000 exceeds daily spending limit of ₹50,000' },
+        { id: 'CHK-H3', name: 'Merchant Whitelist', category: 'MERCHANT', status: 'PASS', message: 'Merchant "Dell" is verified vendor' },
+      ],
+    },
+  },
 ];
 
 const initialSampleTransactions: TransactionRecord[] = [
   {
     id: 'TXN-901',
     userId: 'pactpay-officer-001',
-    requestId: 'REQ-101',
+    requestId: 'REQ-102',
     orderId: 'PENDING_PAYPAL_SETUP',
-    merchant: 'Amazon',
-    product: 'Logitech MX Master 3S Wireless Mouse',
-    amount: 7995,
-    currency: 'INR',
+    merchant: 'DigitalOcean',
+    product: 'DigitalOcean Kubernetes Hosting Credits',
+    amount: 65,
+    currency: 'USD',
     status: 'PENDING',
-    timestamp: new Date(Date.now() - 15 * 60 * 1000).toISOString(),
-    guardianRiskScore: 12,
-    approvedBy: 'Human Officer (Awaiting Live PayPal Execution)',
+    timestamp: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
+    guardianRiskScore: 8,
+    approvedBy: 'FinTech Officer (indu642006@gmail.com)',
     auditHash: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',
     isSampleData: true,
   },
   {
     id: 'TXN-902',
     userId: 'pactpay-officer-001',
-    requestId: 'REQ-102',
+    requestId: 'REQ-103',
     orderId: 'N/A - BLOCKED_BY_FIREWALL',
     merchant: 'BetOnline',
     product: 'VIP Casino Betting Vouchers (x25)',
     amount: 500,
     currency: 'USD',
     status: 'BLOCKED',
-    timestamp: new Date(Date.now() - 45 * 60 * 1000).toISOString(),
+    timestamp: new Date(Date.now() - 44 * 60 * 1000).toISOString(),
     guardianRiskScore: 95,
     auditHash: '9a5c88b024479e390c58a698a8a815a51c4a9a081ec941913f0ea277189fa943',
+    isSampleData: true,
+  },
+  {
+    id: 'TXN-903',
+    userId: 'pactpay-officer-001',
+    requestId: 'REQ-104',
+    orderId: 'N/A - BLOCKED_BY_FIREWALL',
+    merchant: 'Dell',
+    product: 'Dell UltraSharp 32-inch 6K Monitors (x4)',
+    amount: 280000,
+    currency: 'INR',
+    status: 'BLOCKED',
+    timestamp: new Date(Date.now() - 59 * 60 * 1000).toISOString(),
+    guardianRiskScore: 88,
+    auditHash: 'f4c8996fb92427ae41e4649b934ca495991b7852b855e3b0c44298fc1c149afb',
     isSampleData: true,
   },
 ];
@@ -171,6 +256,7 @@ const initialSampleAuditLogs: AuditLogEntry[] = [
     details: { model: 'gemini-3.8-flash', product: 'Logitech MX Master 3S Wireless Mouse', amount: 7995, currency: 'INR' },
     timestamp: new Date(Date.now() - 12 * 60 * 1000).toISOString(),
     auditHash: 'a1b2c3d4e5f60718293a4b5c6d7e8f90',
+    isSampleData: true,
   },
   {
     id: 'LOG-002',
@@ -182,17 +268,19 @@ const initialSampleAuditLogs: AuditLogEntry[] = [
     details: { riskScore: 12, passed: true, limitCheck: 'PASS', merchantCheck: 'PASS' },
     timestamp: new Date(Date.now() - 11 * 60 * 1000).toISOString(),
     auditHash: 'b2c3d4e5f60718293a4b5c6d7e8f90a1',
+    isSampleData: true,
   },
   {
     id: 'LOG-003',
     userId: 'pactpay-officer-001',
-    requestId: 'REQ-102',
+    requestId: 'REQ-103',
     eventType: 'PAYMENT_FIREWALL_BLOCKED',
-    summary: 'Payment Guardian BLOCKED request REQ-102: Merchant "BetOnline" is blacklisted.',
+    summary: 'Payment Guardian BLOCKED request REQ-103: Merchant "BetOnline" is blacklisted.',
     actor: 'Payment Guardian Firewall',
     details: { riskScore: 95, merchant: 'BetOnline' },
     timestamp: new Date(Date.now() - 44 * 60 * 1000).toISOString(),
     auditHash: 'c3d4e5f60718293a4b5c6d7e8f90a1b2',
+    isSampleData: true,
   },
 ];
 
@@ -207,6 +295,9 @@ export const PactPayProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [isProcessing, setIsProcessing] = useState(false);
   const [activeRequestId, setActiveRequestId] = useState<string | null>(null);
   const [paypalStatus, setPaypalStatus] = useState<PayPalConfigStatus | null>(null);
+  const [isDemoMode, setIsDemoMode] = useState<boolean>(true);
+
+  const toggleDemoMode = () => setIsDemoMode(prev => !prev);
 
   const refreshPayPalStatus = async (): Promise<PayPalConfigStatus> => {
     try {
@@ -887,6 +978,8 @@ export const PactPayProvider: React.FC<{ children: React.ReactNode }> = ({ child
         firestoreError,
         activeRequestId,
         paypalStatus,
+        isDemoMode,
+        toggleDemoMode,
         refreshPayPalStatus,
         createPurchaseRequest,
         evaluateGuardian,
