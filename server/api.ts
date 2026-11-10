@@ -3,9 +3,13 @@ import { parsePurchaseIntent } from './gemini';
 import { evaluatePaymentGuardian, GuardianInput } from './guardian';
 import { 
   createPayPalOrder, 
+  approvePayPalOrder,
   capturePayPalOrder, 
+  getPayPalOrderDetails,
   getPayPalConfigStatus, 
-  verifyPayPalWebhook 
+  verifyPayPalWebhook,
+  getApprovedOrdersList,
+  getCapturedOrdersList
 } from './paypal';
 
 export const apiRouter = Router();
@@ -114,7 +118,84 @@ apiRouter.post('/paypal/create-order', async (req: Request, res: Response) => {
   }
 });
 
-// 5. PayPal Sandbox Order Capture
+// 5. PayPal Sandbox Order Approval Verification (Human authorization checkpoint)
+apiRouter.post('/paypal/approve-order', async (req: Request, res: Response) => {
+  try {
+    const { orderId, requestId, humanApproved, humanAuthorizedBy, note } = req.body;
+
+    // Requirement 4: Allow payment execution only after explicit human approval
+    if (!humanApproved) {
+      res.status(403).json({
+        success: false,
+        error: 'SECURITY VIOLATION: Payment approval blocked without explicit human authorization signature.',
+      });
+      return;
+    }
+
+    if (!orderId) {
+      res.status(400).json({ success: false, error: 'orderId is required' });
+      return;
+    }
+
+    // Check credentials
+    const configStatus = getPayPalConfigStatus();
+    if (!configStatus.configured) {
+      res.status(400).json({
+        success: false,
+        error: `PayPal Sandbox credentials missing: Please configure ${configStatus.missingCredentials.join(' and ')} in your environment variables.`,
+        missingCredentials: configStatus.missingCredentials,
+      });
+      return;
+    }
+
+    const approvalResult = await approvePayPalOrder({
+      orderId,
+      requestId,
+      humanApproved: Boolean(humanApproved),
+      humanAuthorizedBy,
+      note,
+    });
+
+    res.json(approvalResult);
+  } catch (error: any) {
+    console.error('[API /paypal/approve-order] Error:', error);
+    const isStateError = error.message?.includes('INVALID_ORDER_STATE') || error.message?.includes('ALREADY_FINALIZED');
+    const isAuthError = error.message?.includes('CREDENTIALS') || error.message?.includes('AUTHENTICATION');
+    res.status(isStateError ? 409 : isAuthError ? 401 : 500).json({
+      success: false,
+      error: error.message || 'PayPal order approval verification failed',
+    });
+  }
+});
+
+// 6. Inspect PayPal Order Details
+apiRouter.get('/paypal/orders/:orderId', async (req: Request, res: Response) => {
+  try {
+    const { orderId } = req.params;
+    const configStatus = getPayPalConfigStatus();
+    if (!configStatus.configured) {
+      res.status(400).json({
+        success: false,
+        error: `PayPal Sandbox credentials missing: ${configStatus.missingCredentials.join(', ')}`,
+      });
+      return;
+    }
+
+    const orderData = await getPayPalOrderDetails(orderId);
+    res.json({
+      success: true,
+      order: orderData,
+    });
+  } catch (error: any) {
+    console.error('[API /paypal/orders/:orderId] Error:', error);
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to fetch PayPal order details',
+    });
+  }
+});
+
+// 7. PayPal Sandbox Order Capture
 apiRouter.post('/paypal/capture-order', async (req: Request, res: Response) => {
   try {
     const { orderId, requestId, humanApproved } = req.body;
@@ -153,7 +234,7 @@ apiRouter.post('/paypal/capture-order', async (req: Request, res: Response) => {
     res.json(captureResult);
   } catch (error: any) {
     console.error('[API /paypal/capture-order] Error:', error);
-    const isDuplicate = error.message?.includes('DUPLICATE');
+    const isDuplicate = error.message?.includes('DUPLICATE') || error.message?.includes('CONCURRENT');
     const isAuthError = error.message?.includes('CREDENTIALS') || error.message?.includes('AUTHENTICATION');
     res.status(isDuplicate ? 409 : isAuthError ? 401 : 500).json({
       success: false,
@@ -162,31 +243,124 @@ apiRouter.post('/paypal/capture-order', async (req: Request, res: Response) => {
   }
 });
 
-// 6. PayPal Webhooks
+// 8. PayPal Webhook signature verification & event ingestion
 apiRouter.post('/paypal/webhook', async (req: Request, res: Response) => {
   try {
-    const verified = await verifyPayPalWebhook(req.body, req.headers as Record<string, string>);
-    if (!verified) {
-      res.status(400).json({ error: 'Webhook signature verification failed' });
+    const verifyResult = await verifyPayPalWebhook(req.body, req.headers as Record<string, string>);
+    if (!verifyResult.verified) {
+      console.warn('[API /paypal/webhook] Signature verification failed:', verifyResult.reason);
+      res.status(400).json({ 
+        error: 'Webhook signature verification failed', 
+        reason: verifyResult.reason 
+      });
       return;
     }
 
     const event = req.body;
-    console.log('[PACTPAY Webhook Received]', event.event_type, event.summary);
+    console.log('[PACTPAY Webhook Verified & Processed]', event.event_type, event.summary);
 
+    // Handle key event types: CHECKOUT.ORDER.APPROVED, PAYMENT.CAPTURE.COMPLETED, PAYMENT.CAPTURE.DENIED
     res.json({
       received: true,
       verified: true,
       eventType: event.event_type || 'PAYMENT.CAPTURE.COMPLETED',
+      resourceId: event.resource?.id,
       timestamp: new Date().toISOString(),
     });
   } catch (error: any) {
     console.error('[API /paypal/webhook] Error:', error);
-    res.status(500).json({ error: 'Webhook processing error' });
+    res.status(500).json({ error: 'Webhook processing error', details: error.message });
   }
 });
 
-// 7. System status
+// 9. Inspect server-side recorded PayPal orders (Approved and Captured registries)
+apiRouter.get('/paypal/orders', (_req: Request, res: Response) => {
+  const status = getPayPalConfigStatus();
+  res.json({
+    success: true,
+    status: status.status,
+    configured: status.configured,
+    approvedOrders: getApprovedOrdersList(),
+    capturedOrders: getCapturedOrdersList(),
+    totalApproved: getApprovedOrdersList().length,
+    totalCaptured: getCapturedOrdersList().length,
+  });
+});
+
+// 10. Developer Guide for configuring real PayPal Sandbox credentials
+apiRouter.get('/paypal/credentials-guide', (_req: Request, res: Response) => {
+  res.json({
+    title: 'PACTPAY PayPal Sandbox Configuration Guide',
+    policy: 'Strict Zero-Simulation Policy: PACTPAY never synthesizes fake captures or fabricated transactions.',
+    steps: [
+      {
+        step: 1,
+        instruction: 'Log in to developer.paypal.com with your PayPal account.',
+      },
+      {
+        step: 2,
+        instruction: 'Navigate to Dashboard > Apps & Credentials > Sandbox.',
+      },
+      {
+        step: 3,
+        instruction: 'Select or create a REST API App (e.g., "PACTPAY-Firewall").',
+      },
+      {
+        step: 4,
+        instruction: 'Copy the Client ID and Secret Key.',
+      },
+      {
+        step: 5,
+        instruction: 'Add them to your server environment variables or .env file:',
+        variables: {
+          PAYPAL_CLIENT_ID: 'Your sandbox client ID',
+          PAYPAL_CLIENT_SECRET: 'Your sandbox secret key',
+          PAYPAL_WEBHOOK_ID: '(Optional) Your webhook ID for signature verification',
+        },
+      },
+    ],
+    restEndpoints: {
+      auth: 'POST https://api-m.sandbox.paypal.com/v1/oauth2/token',
+      createOrder: 'POST https://api-m.sandbox.paypal.com/v2/checkout/orders',
+      orderDetails: 'GET https://api-m.sandbox.paypal.com/v2/checkout/orders/{order_id}',
+      captureOrder: 'POST https://api-m.sandbox.paypal.com/v2/checkout/orders/{order_id}/capture',
+      verifyWebhook: 'POST https://api-m.sandbox.paypal.com/v1/notifications/verify-webhook-signature',
+    },
+  });
+});
+
+// 11. Test Webhook Parser endpoint (safely test webhook event structure without faking payment execution)
+apiRouter.post('/paypal/webhook/test', (req: Request, res: Response) => {
+  const event = req.body;
+  if (!event || !event.event_type) {
+    res.status(400).json({
+      success: false,
+      error: 'Invalid webhook payload: event_type is required',
+    });
+    return;
+  }
+
+  const supportedTypes = [
+    'CHECKOUT.ORDER.APPROVED',
+    'PAYMENT.CAPTURE.COMPLETED',
+    'PAYMENT.CAPTURE.DENIED',
+    'PAYMENT.CAPTURE.REFUNDED',
+    'CHECKOUT.ORDER.COMPLETED',
+  ];
+
+  res.json({
+    success: true,
+    testMode: true,
+    eventType: event.event_type,
+    isStandardPayPalEvent: supportedTypes.includes(event.event_type),
+    resourceId: event.resource?.id || 'N/A',
+    summary: event.summary || 'Test webhook simulation',
+    note: 'Test payload parsed successfully without executing real monetary capture.',
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// 12. System status
 apiRouter.get('/system/status', (_req: Request, res: Response) => {
   const paypalStatus = getPayPalConfigStatus();
   res.json({

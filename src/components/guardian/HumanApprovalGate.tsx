@@ -33,6 +33,7 @@ export const HumanApprovalGate: React.FC = () => {
   const [showRejectModal, setShowRejectModal] = useState(false);
   const [authError, setAuthError] = useState<string | null>(null);
   const [inspectPayloadReq, setInspectPayloadReq] = useState<PurchaseRequest | null>(null);
+  const [showGuideModal, setShowGuideModal] = useState(false);
 
   // Filter requests that are awaiting human decision OR human-approved awaiting PayPal execution
   const pendingRequests = requests.filter(r => r.status === 'guardian_approved');
@@ -115,9 +116,18 @@ export const HumanApprovalGate: React.FC = () => {
                 </span>
               ))}
             </div>
-            <p className="text-[10px] text-slate-400">
-              Obtain Sandbox credentials from <strong>developer.paypal.com &gt; Apps &amp; Credentials &gt; Sandbox</strong>.
-            </p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pt-1 border-t border-amber-500/20">
+              <p className="text-[10px] text-slate-400">
+                Obtain Sandbox credentials from <strong>developer.paypal.com &gt; Apps &amp; Credentials &gt; Sandbox</strong>.
+              </p>
+              <button
+                type="button"
+                onClick={() => setShowGuideModal(true)}
+                className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/40 text-[11px] font-semibold transition-colors self-start sm:self-auto"
+              >
+                View Sandbox Integration Guide &amp; Endpoints
+              </button>
+            </div>
           </div>
         )}
 
@@ -467,11 +477,30 @@ export const HumanApprovalGate: React.FC = () => {
             </div>
 
             <div className="space-y-3 text-xs">
-              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
-                <span className="text-[10px] uppercase font-bold text-slate-400">Target REST API Route</span>
-                <p className="font-mono text-cyan-300 text-[11px]">
-                  POST https://api-m.sandbox.paypal.com/v2/checkout/orders
-                </p>
+              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+                <span className="text-[10px] uppercase font-bold text-slate-400">Server Orders API v2 Pipeline</span>
+                <div className="space-y-1 font-mono text-[11px]">
+                  <div className="flex items-center gap-2">
+                    <span className="px-1.5 py-0.5 rounded text-[9px] bg-cyan-500/20 text-cyan-300 font-bold">Step 1</span>
+                    <span className="text-slate-300">POST /api/paypal/create-order</span>
+                    <span className="text-slate-500">→ v2/checkout/orders</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-1.5 py-0.5 rounded text-[9px] bg-indigo-500/20 text-indigo-300 font-bold">Step 2</span>
+                    <span className="text-slate-300">POST /api/paypal/approve-order</span>
+                    <span className="text-slate-500">→ verifies human sign-off</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="px-1.5 py-0.5 rounded text-[9px] bg-emerald-500/20 text-emerald-300 font-bold">Step 3</span>
+                    <span className="text-slate-300">POST /api/paypal/capture-order</span>
+                    <span className="text-slate-500">→ v2/checkout/orders/&#123;id&#125;/capture</span>
+                  </div>
+                  <div className="flex items-center gap-2 pt-1 border-t border-slate-900 text-slate-400 text-[10px]">
+                    <span className="px-1.5 py-0.5 rounded text-[9px] bg-blue-500/20 text-blue-300 font-bold">Hook</span>
+                    <span>POST /api/paypal/webhook</span>
+                    <span className="text-slate-500">→ v1/notifications/verify-webhook-signature</span>
+                  </div>
+                </div>
               </div>
 
               <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1">
@@ -484,8 +513,8 @@ export const HumanApprovalGate: React.FC = () => {
               </div>
 
               <div>
-                <span className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">Request Body (JSON)</span>
-                <pre className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-[11px] font-mono text-cyan-300 overflow-x-auto max-h-48">
+                <span className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">Create Order Request Body (JSON)</span>
+                <pre className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-[11px] font-mono text-cyan-300 overflow-x-auto max-h-40">
 {JSON.stringify({
   intent: "CAPTURE",
   purchase_units: [
@@ -501,7 +530,7 @@ export const HumanApprovalGate: React.FC = () => {
   ],
   application_context: {
     brand_name: "PACTPAY Autonomous Firewall",
-    user_action: "CONTINUE",
+    user_action: "PAY_NOW",
   },
 }, null, 2)}
                 </pre>
@@ -510,7 +539,7 @@ export const HumanApprovalGate: React.FC = () => {
               <div className="p-3 rounded-xl bg-amber-950/30 border border-amber-800/40 text-[11px] text-amber-200 flex items-start gap-2">
                 <Info className="w-4 h-4 text-amber-400 flex-shrink-0 mt-0.5" />
                 <span>
-                  <strong>Hackathon Verification Notice:</strong> This real payload is dispatched by <code className="text-cyan-300 font-mono">server/paypal.ts</code>. PACTPAY refuses to simulate captures; configure <code className="text-cyan-300 font-mono">PAYPAL_CLIENT_ID</code> and <code className="text-cyan-300 font-mono">PAYPAL_CLIENT_SECRET</code> to finalize live sandbox captures.
+                  <strong>Strict Zero-Simulation Policy:</strong> All order creation, approval, and capture operations execute against live PayPal Sandbox REST v2 endpoints in <code className="text-cyan-300 font-mono">server/paypal.ts</code>. PACTPAY never synthesizes fake captures. Configure <code className="text-cyan-300 font-mono">PAYPAL_CLIENT_ID</code> and <code className="text-cyan-300 font-mono">PAYPAL_CLIENT_SECRET</code> to enable live payment captures.
                 </span>
               </div>
             </div>
@@ -521,6 +550,102 @@ export const HumanApprovalGate: React.FC = () => {
                 className="px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs rounded-xl"
               >
                 Close Inspector
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PayPal Sandbox Developer Guide & Architecture Modal */}
+      {showGuideModal && (
+        <div className="fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="w-full max-w-2xl rounded-2xl bg-[#09122a] border border-cyan-500/40 p-6 space-y-4 shadow-2xl animate-fadeIn max-h-[90vh] overflow-y-auto">
+            <div className="flex items-center justify-between pb-3 border-b border-slate-800">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2 rounded-xl bg-blue-500/20 text-cyan-400 border border-blue-500/30">
+                  <CreditCard className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-base font-bold text-white">PayPal Sandbox Integration Architecture</h3>
+                  <p className="text-xs text-slate-400">Server-Side Orders API v2 • Webhook Signature Verification</p>
+                </div>
+              </div>
+              <button
+                onClick={() => setShowGuideModal(false)}
+                className="p-1 rounded-lg hover:bg-slate-800 text-slate-400 hover:text-white"
+              >
+                <XCircle className="w-5 h-5" />
+              </button>
+            </div>
+
+            <div className="space-y-3 text-xs">
+              <div className="p-3.5 rounded-xl bg-blue-950/40 border border-cyan-500/30 text-cyan-200 leading-relaxed">
+                <strong>Current Configuration State:</strong> Integration code is 100% active on the Node.js server. The gateway is held in safe <code className="text-amber-300 font-mono">PENDING_CONFIGURATION</code> mode until you supply Sandbox credentials in <code className="text-cyan-300 font-mono">.env</code>. PACTPAY never synthesizes false payment captures.
+              </div>
+
+              {/* Endpoints Table */}
+              <div className="space-y-1.5">
+                <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Active Server Endpoints</span>
+                <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-2 font-mono text-[11px]">
+                  <div className="flex items-center justify-between text-slate-300">
+                    <span className="text-cyan-300">POST /api/paypal/create-order</span>
+                    <span className="text-slate-500">Creates v2 Sandbox Order</span>
+                  </div>
+                  <div className="flex items-center justify-between text-slate-300">
+                    <span className="text-indigo-300">POST /api/paypal/approve-order</span>
+                    <span className="text-slate-500">Verifies human sign-off on PayPal</span>
+                  </div>
+                  <div className="flex items-center justify-between text-slate-300">
+                    <span className="text-emerald-300">POST /api/paypal/capture-order</span>
+                    <span className="text-slate-500">Captures funds &amp; commits to Firestore</span>
+                  </div>
+                  <div className="flex items-center justify-between text-slate-300">
+                    <span className="text-amber-300">POST /api/paypal/webhook</span>
+                    <span className="text-slate-500">Verifies cryptographic transmission signature</span>
+                  </div>
+                  <div className="flex items-center justify-between text-slate-300">
+                    <span className="text-blue-300">GET /api/paypal/status</span>
+                    <span className="text-slate-500">Returns gateway configuration readiness</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Steps to Add Credentials */}
+              <div className="space-y-1.5">
+                <span className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">How to Add Real Sandbox Credentials (When Ready)</span>
+                <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 space-y-2">
+                  <ol className="list-decimal list-inside space-y-1 text-slate-300 leading-relaxed text-[11px]">
+                    <li>Sign in to <span className="text-cyan-300 font-medium">developer.paypal.com</span> with any PayPal account.</li>
+                    <li>Go to <strong>Dashboard &gt; Apps &amp; Credentials &gt; Sandbox</strong>.</li>
+                    <li>Create or select a REST API application (e.g. <em>PACTPAY-Firewall</em>).</li>
+                    <li>Copy your <strong>Client ID</strong> and <strong>Secret Key</strong>.</li>
+                    <li>Add them to your project's server environment:</li>
+                  </ol>
+                  <pre className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 font-mono text-[11px] text-cyan-300 overflow-x-auto">
+{`PAYPAL_CLIENT_ID="YOUR_SANDBOX_CLIENT_ID"
+PAYPAL_CLIENT_SECRET="YOUR_SANDBOX_SECRET_KEY"
+PAYPAL_WEBHOOK_ID="YOUR_OPTIONAL_WEBHOOK_ID"`}
+                  </pre>
+                </div>
+              </div>
+
+              {/* Duplicate Prevention & Security */}
+              <div className="p-3 rounded-xl bg-slate-950 border border-slate-800 space-y-1 text-[11px] text-slate-300">
+                <span className="text-[10px] uppercase font-bold text-slate-400">Security Safeguards Built-In</span>
+                <ul className="list-disc list-inside space-y-0.5 text-slate-400">
+                  <li><strong className="text-slate-200">Anti-Duplicate Protection:</strong> Prevents multiple captures for the same order reference.</li>
+                  <li><strong className="text-slate-200">Concurrency Mutex:</strong> In-flight lock rejects simultaneous parallel capture requests.</li>
+                  <li><strong className="text-slate-200">Replay Defense:</strong> Webhook parser rejects timestamps outside the 10-minute window.</li>
+                </ul>
+              </div>
+            </div>
+
+            <div className="pt-2 flex justify-end">
+              <button
+                onClick={() => setShowGuideModal(false)}
+                className="px-4 py-2 bg-gradient-to-r from-cyan-500 to-blue-600 hover:from-cyan-400 hover:to-blue-500 text-slate-950 font-bold text-xs rounded-xl transition-all"
+              >
+                Got It
               </button>
             </div>
           </div>

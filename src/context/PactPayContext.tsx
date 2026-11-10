@@ -771,7 +771,60 @@ export const PactPayProvider: React.FC<{ children: React.ReactNode }> = ({ child
         details: { order },
       });
 
-      // Step B: Server captures PayPal Sandbox Order
+      // Step B: Server verifies and approves PayPal Order with human sign-off signature
+      const approveOrderRes = await fetch('/api/paypal/approve-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          orderId: order.orderId,
+          requestId: target.id,
+          humanApproved: true,
+          humanAuthorizedBy: target.humanDecision?.authorizedBy || 'FinTech Officer',
+          note: target.humanDecision?.note,
+        }),
+      });
+
+      if (!approveOrderRes.ok) {
+        const errJson = await approveOrderRes.json().catch(() => ({}));
+        const errMsg = errJson.error || 'Failed to verify PayPal order approval';
+
+        setRequests(prev => prev.map(r => r.id === requestId ? { ...r, status: 'failed', updatedAt: new Date().toISOString() } : r));
+
+        await addAuditLog({
+          userId: user?.uid || 'pactpay-officer-001',
+          requestId: target.id,
+          eventType: 'PAYMENT_FIREWALL_BLOCKED',
+          summary: `PayPal order approval check failed: ${errMsg}`,
+          actor: 'PayPal Sandbox Gateway',
+          details: { error: errMsg, orderId: order.orderId },
+        });
+
+        if (user) {
+          try {
+            await updateDoc(doc(db, `users/${user.uid}/purchaseRequests`, target.id), {
+              status: 'failed',
+              updatedAt: new Date().toISOString(),
+            });
+          } catch (e) {
+            console.warn('[PACTPAY Firestore] Failed status update error:', e);
+          }
+        }
+
+        throw new Error(errMsg);
+      }
+
+      const approveResult = await approveOrderRes.json();
+
+      await addAuditLog({
+        userId: user?.uid || 'pactpay-officer-001',
+        requestId: target.id,
+        eventType: 'HUMAN_APPROVAL_GRANTED',
+        summary: `PayPal Sandbox Order ${order.orderId} verified and approved by ${approveResult.authorizedBy} (${approveResult.orderStatus})`,
+        actor: 'Human Sign-off',
+        details: { approveResult },
+      });
+
+      // Step C: Server captures PayPal Sandbox Order
       const captureRes = await fetch('/api/paypal/capture-order', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

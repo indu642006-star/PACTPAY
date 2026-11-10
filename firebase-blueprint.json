@@ -20,6 +20,9 @@
           "enum": ["draft", "evaluating", "guardian_approved", "guardian_blocked", "human_approved", "human_rejected", "payment_pending", "completed", "failed"],
           "maxLength": 64
         },
+        "paymentDetails": { "type": "object" },
+        "guardianEvaluation": { "type": "object" },
+        "humanDecision": { "type": "object" },
         "createdAt": { "type": "string", "maxLength": 64 },
         "updatedAt": { "type": "string", "maxLength": 64 }
       },
@@ -56,7 +59,11 @@
         "amount": { "type": "number" },
         "currency": { "type": "string", "maxLength": 10 },
         "status": { "type": "string", "maxLength": 32 },
-        "timestamp": { "type": "string", "maxLength": 64 }
+        "paypalPayerEmail": { "type": "string", "maxLength": 256 },
+        "timestamp": { "type": "string", "maxLength": 64 },
+        "guardianRiskScore": { "type": "number" },
+        "approvedBy": { "type": "string", "maxLength": 256 },
+        "auditHash": { "type": "string", "maxLength": 128 }
       },
       "required": ["id", "userId", "amount", "currency", "status", "timestamp"]
     },
