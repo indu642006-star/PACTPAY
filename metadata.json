@@ -1,0 +1,6 @@
+{
+  "name": "PACTPAY",
+  "description": "AI-powered payment firewall for the agentic economy. Let AI decide. Let humans authorize. Let PayPal execute.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

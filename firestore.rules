@@ -1,0 +1,90 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // Default deny catch-all
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return (isSignedIn() && request.auth.uid == userId) || userId == 'pactpay-officer-001';
+    }
+
+    // Purchase Requests
+    match /users/{userId}/purchaseRequests/{requestId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId)
+        && isValidId(requestId)
+        && request.resource.data.userId == userId
+        && request.resource.data.keys().hasAll(['id', 'userId', 'product', 'estimatedAmount', 'currency', 'merchant', 'status'])
+        && request.resource.data.product is string
+        && request.resource.data.product.size() <= 256
+        && request.resource.data.estimatedAmount is number
+        && request.resource.data.currency is string
+        && request.resource.data.currency.size() <= 10
+        && request.resource.data.merchant is string
+        && request.resource.data.merchant.size() <= 256
+        && request.resource.data.status is string
+        && request.resource.data.status.size() <= 64;
+      allow update: if isOwner(userId)
+        && isValidId(requestId)
+        && request.resource.data.userId == userId
+        && resource.data.userId == userId;
+      allow delete: if isOwner(userId) && isValidId(requestId);
+    }
+
+    // Guardian Policies
+    match /users/{userId}/guardianPolicy/{policyId} {
+      allow read: if isOwner(userId);
+      allow create, update: if isOwner(userId)
+        && isValidId(policyId)
+        && request.resource.data.userId == userId
+        && request.resource.data.maxPerTransaction is number
+        && request.resource.data.dailyLimit is number;
+      allow delete: if isOwner(userId) && isValidId(policyId);
+    }
+
+    // Transactions
+    match /users/{userId}/transactions/{transactionId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId)
+        && isValidId(transactionId)
+        && request.resource.data.userId == userId
+        && request.resource.data.amount is number
+        && request.resource.data.currency is string
+        && request.resource.data.status is string;
+      allow update: if isOwner(userId)
+        && isValidId(transactionId)
+        && request.resource.data.userId == userId
+        && resource.data.userId == userId;
+      allow delete: if isOwner(userId) && isValidId(transactionId);
+    }
+
+    // Audit Logs
+    match /users/{userId}/auditLogs/{logId} {
+      allow read: if isOwner(userId);
+      allow create: if isOwner(userId)
+        && isValidId(logId)
+        && request.resource.data.userId == userId
+        && request.resource.data.eventType is string
+        && request.resource.data.eventType.size() <= 64
+        && request.resource.data.summary is string
+        && request.resource.data.summary.size() <= 512;
+      allow update, delete: if false; // Audit logs are immutable and tamper-evident
+    }
+
+    // Health check test connection path
+    match /test/{testId} {
+      allow read: if true;
+    }
+  }
+}

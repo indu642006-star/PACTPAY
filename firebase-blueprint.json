@@ -1,0 +1,97 @@
+{
+  "entities": {
+    "PurchaseRequest": {
+      "title": "PurchaseRequest",
+      "description": "An AI-evaluated purchase request awaiting guardian verification and human authorization",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "userEmail": { "type": "string", "maxLength": 256 },
+        "naturalPrompt": { "type": "string", "maxLength": 1000 },
+        "product": { "type": "string", "maxLength": 256 },
+        "budget": { "type": "number" },
+        "estimatedAmount": { "type": "number" },
+        "currency": { "type": "string", "maxLength": 10 },
+        "merchant": { "type": "string", "maxLength": 256 },
+        "intentSummary": { "type": "string", "maxLength": 1000 },
+        "status": {
+          "type": "string",
+          "enum": ["draft", "evaluating", "guardian_approved", "guardian_blocked", "human_approved", "human_rejected", "payment_pending", "completed", "failed"],
+          "maxLength": 64
+        },
+        "createdAt": { "type": "string", "maxLength": 64 },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "product", "estimatedAmount", "currency", "merchant", "status"]
+    },
+    "GuardianPolicy": {
+      "title": "GuardianPolicy",
+      "description": "User-configured deterministic firewall spending limits and merchant restrictions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "maxPerTransaction": { "type": "number" },
+        "dailyLimit": { "type": "number" },
+        "monthlyLimit": { "type": "number" },
+        "autoRejectHighRisk": { "type": "boolean" },
+        "blockDuplicateWindowMinutes": { "type": "number" },
+        "updatedAt": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "maxPerTransaction", "dailyLimit"]
+    },
+    "TransactionRecord": {
+      "title": "TransactionRecord",
+      "description": "Verified executed or blocked payment transactions for AG Grid and auditing",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "requestId": { "type": "string", "maxLength": 128 },
+        "orderId": { "type": "string", "maxLength": 128 },
+        "captureId": { "type": "string", "maxLength": 128 },
+        "merchant": { "type": "string", "maxLength": 256 },
+        "product": { "type": "string", "maxLength": 256 },
+        "amount": { "type": "number" },
+        "currency": { "type": "string", "maxLength": 10 },
+        "status": { "type": "string", "maxLength": 32 },
+        "timestamp": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "amount", "currency", "status", "timestamp"]
+    },
+    "AuditLogEntry": {
+      "title": "AuditLogEntry",
+      "description": "Tamper-evident audit trail entries for AI decisions, Guardian checks, human approvals, and PayPal executions",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string", "maxLength": 128 },
+        "userId": { "type": "string", "maxLength": 128 },
+        "requestId": { "type": "string", "maxLength": 128 },
+        "eventType": { "type": "string", "maxLength": 64 },
+        "summary": { "type": "string", "maxLength": 512 },
+        "actor": { "type": "string", "maxLength": 128 },
+        "timestamp": { "type": "string", "maxLength": 64 }
+      },
+      "required": ["id", "userId", "eventType", "summary", "actor", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}/purchaseRequests/{requestId}": {
+      "schema": "PurchaseRequest",
+      "description": "User purchase requests and AI guardian statuses"
+    },
+    "/users/{userId}/guardianPolicy/default": {
+      "schema": "GuardianPolicy",
+      "description": "User spending rules and restrictions"
+    },
+    "/users/{userId}/transactions/{transactionId}": {
+      "schema": "TransactionRecord",
+      "description": "User transaction history"
+    },
+    "/users/{userId}/auditLogs/{logId}": {
+      "schema": "AuditLogEntry",
+      "description": "User audit trail records"
+    }
+  }
+}

@@ -1,0 +1,64 @@
+@import "tailwindcss";
+@import "ag-grid-community/styles/ag-grid.css";
+@import "ag-grid-community/styles/ag-theme-quartz.css";
+
+/* PACTPAY Premium FinTech Custom Styling */
+:root {
+  --navy-950: #050a17;
+  --navy-900: #0a1329;
+  --navy-850: #0e1b3a;
+  --navy-800: #14244d;
+  --paypal-blue: #0070BA;
+  --pactpay-cyan: #00CFDE;
+}
+
+body {
+  background-color: var(--navy-950);
+  color: #f1f5f9;
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  overflow-x: hidden;
+}
+
+/* Custom AG Grid Dark Navy Theme Tweaks */
+.ag-theme-quartz-dark {
+  --ag-background-color: #0b142c;
+  --ag-header-background-color: #080f22;
+  --ag-odd-row-background-color: #0d1835;
+  --ag-row-hover-color: #14244d;
+  --ag-selected-row-background-color: rgba(0, 112, 186, 0.25);
+  --ag-border-color: #1e293b;
+  --ag-header-foreground-color: #94a3b8;
+  --ag-foreground-color: #f8fafc;
+  --ag-font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+  --ag-font-size: 13px;
+  --ag-grid-size: 6px;
+  --ag-row-height: 48px;
+  --ag-header-height: 42px;
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+::-webkit-scrollbar-track {
+  background: #080f22;
+}
+::-webkit-scrollbar-thumb {
+  background: #1e293b;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #334155;
+}
+
+/* Pulse animation for AI firewall radar */
+@keyframes firewallPulse {
+  0% { transform: scale(0.95); opacity: 0.8; }
+  50% { transform: scale(1.05); opacity: 1; }
+  100% { transform: scale(0.95); opacity: 0.8; }
+}
+
+.firewall-pulse {
+  animation: firewallPulse 3s ease-in-out infinite;
+}
