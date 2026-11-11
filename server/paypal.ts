@@ -42,6 +42,8 @@ export interface PayPalConfigStatus {
   missingCredentials: string[];
   environment: 'sandbox';
   baseUrl: string;
+  publicBaseUrl?: string;
+  publicWebhookUrl?: string;
   status: 'READY' | 'PENDING_CONFIGURATION';
   message: string;
   currencyPolicy: {
@@ -83,6 +85,47 @@ let cachedTokenExpiresAt: number = 0;
 const PAYPAL_BASE_URL = 'https://api-m.sandbox.paypal.com';
 
 /**
+ * Resolves a valid HTTPS base URL for PayPal return/cancel endpoints.
+ * Prioritizes APP_URL, then Render's RENDER_EXTERNAL_URL, then fallback development URL.
+ * Strictly guarantees an https:// scheme to prevent PayPal 422 INVALID_PARAMETER_VALUE.
+ */
+export function getPayPalPublicBaseUrl(): string {
+  const candidate = (process.env.APP_URL || process.env.RENDER_EXTERNAL_URL || '').trim();
+  if (candidate) {
+    // If it starts with http:// and is not localhost, upgrade to https://
+    if (candidate.startsWith('http://') && !candidate.includes('localhost') && !candidate.includes('127.0.0.1')) {
+      return candidate.replace(/^http:\/\//i, 'https://').replace(/\/+$/, '');
+    }
+    // If already absolute URL, return stripped of trailing slashes
+    if (candidate.startsWith('http://') || candidate.startsWith('https://')) {
+      return candidate.replace(/\/+$/, '');
+    }
+    return `https://${candidate.replace(/\/+$/, '')}`;
+  }
+  // Safe default public HTTPS endpoint for webhooks and callbacks
+  return 'https://ais-dev-q423y63iv6lo4c3qajzofa-427773228149.asia-southeast1.run.app';
+}
+
+/**
+ * Sanitizes a string for PayPal purchase unit description.
+ * PayPal strictly enforces:
+ * - Max length: 127 characters
+ * - Safe character set: ASCII alphanumeric, spaces, and basic punctuation: . , - _ / ( )
+ * - Strips multi-byte unicode symbols (e.g., ₹ Indian Rupee sign) that trigger 422 SEMANTIC_ERROR / INVALID_STRING_LENGTH.
+ */
+export function sanitizePayPalDescription(rawText: string, maxLength: number = 120): string {
+  if (!rawText) return 'PACTPAY Purchase';
+  // Replace Rupee sign ₹ and Rs. with standard ASCII "INR "
+  let cleaned = rawText.replace(/₹/g, 'INR ').replace(/Rs\.?/gi, 'INR ');
+  // Replace multi-byte or non-ASCII characters with spaces
+  cleaned = cleaned.replace(/[^\x20-\x7E]/g, ' ');
+  // Collapse whitespace
+  cleaned = cleaned.replace(/\s+/g, ' ').trim();
+  if (cleaned.length <= maxLength) return cleaned;
+  return cleaned.substring(0, maxLength - 3).trim() + '...';
+}
+
+/**
  * Check whether required PayPal Sandbox credentials exist in the server environment.
  * Secrets are NEVER returned or exposed to the client.
  */
@@ -96,12 +139,15 @@ export function getPayPalConfigStatus(): PayPalConfigStatus {
   }
 
   const isConfigured = missing.length === 0;
+  const publicBase = getPayPalPublicBaseUrl();
 
   return {
     configured: isConfigured,
     missingCredentials: missing,
     environment: 'sandbox',
     baseUrl: PAYPAL_BASE_URL,
+    publicBaseUrl: publicBase,
+    publicWebhookUrl: `${publicBase}/api/paypal/webhook`,
     status: isConfigured ? 'READY' : 'PENDING_CONFIGURATION',
     message: isConfigured
       ? 'PayPal Sandbox integration is fully configured and ready for live capture.'
@@ -214,25 +260,45 @@ export async function createPayPalOrder(params: CreateOrderParams) {
   // Obtain verified access token (throws if credentials are missing or invalid)
   const accessToken = await getPayPalAccessToken();
 
+  // Resolve public HTTPS base URL for callbacks
+  const publicBaseUrl = getPayPalPublicBaseUrl();
+  const returnUrl = `${publicBaseUrl}/api/paypal/return`;
+  const cancelUrl = `${publicBaseUrl}/api/paypal/cancel`;
+
+  // Sanitize description: safe ASCII only, no multi-byte characters like ₹, max 120 chars
+  const cleanProductName = sanitizePayPalDescription(params.product, 45);
+  const safeDescription = sanitizePayPalDescription(
+    `PACTPAY: ${cleanProductName} (Orig: ${params.amount.toFixed(2)} INR @ 1 USD = ${conversion.inverseRate.toFixed(2)} INR)`,
+    120
+  );
+
+  // Modern PayPal Orders v2 Payload (replaces deprecated root application_context)
+  // Fixes HTTP 422 "semantically incorrect or failed business validation"
   const orderPayload = {
     intent: 'CAPTURE',
     purchase_units: [
       {
         reference_id: params.requestId,
-        description: `PACTPAY: ${params.product.substring(0, 60)} (Orig: ₹${params.amount.toLocaleString('en-IN')} INR @ 1 USD = ₹${conversion.inverseRate.toFixed(2)} INR)`,
+        description: safeDescription,
         custom_id: params.requestId,
         amount: {
           currency_code: 'USD', // Send only USD to PayPal Orders API
-          value: conversion.convertedAmount.toFixed(2),
+          value: conversion.convertedAmount.toFixed(2), // 2-decimal string format
         },
       },
     ],
-    application_context: {
-      brand_name: 'PACTPAY AI Firewall',
-      landing_page: 'NO_PREFERENCE',
-      user_action: 'PAY_NOW',
-      return_url: `${process.env.APP_URL || 'http://localhost:3000'}/api/paypal/return`,
-      cancel_url: `${process.env.APP_URL || 'http://localhost:3000'}/api/paypal/cancel`,
+    payment_source: {
+      paypal: {
+        experience_context: {
+          brand_name: 'PACTPAY AI Firewall',
+          locale: 'en-US',
+          landing_page: 'NO_PREFERENCE',
+          shipping_preference: 'NO_SHIPPING', // Digital software / API authorizations
+          user_action: 'PAY_NOW',
+          return_url: returnUrl,
+          cancel_url: cancelUrl,
+        },
+      },
     },
   };
 
@@ -249,10 +315,35 @@ export async function createPayPalOrder(params: CreateOrderParams) {
   const orderData = await response.json().catch(() => ({}));
 
   if (!response.ok) {
-    console.error('[PACTPAY PayPal Order Creation Error]', response.status, orderData);
-    const detailMsg = orderData.details?.map((d: any) => `${d.issue}: ${d.description}`).join('; ');
+    const debugId = response.headers.get('paypal-debug-id') || orderData.debug_id || 'N/A';
+    console.error('[PACTPAY PayPal Order Creation Error]', {
+      status: response.status,
+      statusText: response.statusText,
+      debugId,
+      errorName: orderData.name,
+      message: orderData.message,
+      details: orderData.details,
+      links: orderData.links,
+      // Log sanitized payload for debugging (never contains secrets)
+      payload: {
+        intent: orderPayload.intent,
+        amount: orderPayload.purchase_units[0]?.amount,
+        reference_id: orderPayload.purchase_units[0]?.reference_id,
+        description: orderPayload.purchase_units[0]?.description,
+        return_url: returnUrl,
+      },
+    });
+
+    const detailMsg = Array.isArray(orderData.details)
+      ? orderData.details
+          .map((d: any) => `${d.field ? `[Field: ${d.field}] ` : ''}${d.issue || 'ISSUE'}: ${d.description || 'Validation error'}`)
+          .join('; ')
+      : '';
+
     throw new Error(
-      `PAYPAL_ORDER_CREATION_FAILED: ${orderData.message || response.statusText}${detailMsg ? ` (${detailMsg})` : ''}`
+      `PAYPAL_ORDER_CREATION_FAILED (Status ${response.status}, Debug ID: ${debugId}): ${
+        orderData.message || response.statusText
+      }${detailMsg ? ` (${detailMsg})` : ''}`
     );
   }
 
@@ -298,8 +389,16 @@ export async function getPayPalOrderDetails(orderId: string) {
   const orderData = await response.json().catch(() => ({}));
 
   if (!response.ok) {
+    const debugId = response.headers.get('paypal-debug-id') || orderData.debug_id || 'N/A';
+    console.error('[PACTPAY PayPal Order Fetch Error]', {
+      status: response.status,
+      debugId,
+      errorName: orderData.name,
+      message: orderData.message,
+      details: orderData.details,
+    });
     throw new Error(
-      `PAYPAL_ORDER_FETCH_FAILED: ${orderData.message || response.statusText}`
+      `PAYPAL_ORDER_FETCH_FAILED (Status ${response.status}, Debug ID: ${debugId}): ${orderData.message || response.statusText}`
     );
   }
 
@@ -434,10 +533,24 @@ export async function capturePayPalOrder(params: CaptureOrderParams) {
     const captureData = await response.json().catch(() => ({}));
 
     if (!response.ok) {
-      console.error('[PACTPAY PayPal Capture Error]', response.status, captureData);
-      const detailMsg = captureData.details?.map((d: any) => `${d.issue}: ${d.description}`).join('; ');
+      const debugId = response.headers.get('paypal-debug-id') || captureData.debug_id || 'N/A';
+      console.error('[PACTPAY PayPal Capture Error]', {
+        status: response.status,
+        statusText: response.statusText,
+        debugId,
+        errorName: captureData.name,
+        message: captureData.message,
+        details: captureData.details,
+      });
+      const detailMsg = Array.isArray(captureData.details)
+        ? captureData.details
+            .map((d: any) => `${d.field ? `[Field: ${d.field}] ` : ''}${d.issue || 'ISSUE'}: ${d.description || ''}`)
+            .join('; ')
+        : '';
       throw new Error(
-        `PAYPAL_CAPTURE_FAILED: ${captureData.name || 'Error'} - ${captureData.message || response.statusText}${detailMsg ? ` (${detailMsg})` : ''}`
+        `PAYPAL_CAPTURE_FAILED (Status ${response.status}, Debug ID: ${debugId}): ${
+          captureData.name || 'Error'
+        } - ${captureData.message || response.statusText}${detailMsg ? ` (${detailMsg})` : ''}`
       );
     }
 

@@ -139,7 +139,7 @@ apiRouter.post('/paypal/create-order', async (req: Request, res: Response) => {
       requestId,
       product,
       amount: Number(amount),
-      currency: currency || 'USD',
+      currency: currency || 'INR',
       merchant: merchant || 'Merchant',
       userEmail: userEmail || 'user@pactpay.internal',
       humanApproved: Boolean(humanApproved),
