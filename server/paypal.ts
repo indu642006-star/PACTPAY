@@ -1,4 +1,7 @@
 import crypto from 'crypto';
+import { convertToPayPalUsd, type ConvertedAmountResult, getInrToUsdExchangeRate } from './currency';
+
+export type { ConvertedAmountResult };
 
 export interface CreateOrderParams {
   requestId: string;
@@ -41,12 +44,19 @@ export interface PayPalConfigStatus {
   baseUrl: string;
   status: 'READY' | 'PENDING_CONFIGURATION';
   message: string;
+  currencyPolicy: {
+    internalCurrency: 'INR';
+    gatewayCurrency: 'USD';
+    autoConversion: boolean;
+    description: string;
+  };
   endpoints: {
     createOrder: string;
     approveOrder: string;
     captureOrder: string;
     webhook: string;
     orderDetails: string;
+    exchangeRate: string;
   };
 }
 
@@ -61,6 +71,7 @@ export interface CapturedOrderRecord {
 }
 const capturedOrderRecords = new Map<string, CapturedOrderRecord>();
 const approvedOrdersMap = new Map<string, ApprovedOrderRecord>();
+const orderConversionsMap = new Map<string, ConvertedAmountResult>();
 
 // Concurrency lock to prevent simultaneous duplicate capture attempts
 const capturingInProgress = new Set<string>();
@@ -95,12 +106,19 @@ export function getPayPalConfigStatus(): PayPalConfigStatus {
     message: isConfigured
       ? 'PayPal Sandbox integration is fully configured and ready for live capture.'
       : 'PayPal Sandbox integration code is complete and active. Real Sandbox credentials pending in server environment variables.',
+    currencyPolicy: {
+      internalCurrency: 'INR',
+      gatewayCurrency: 'USD',
+      autoConversion: true,
+      description: 'Internal amounts & Guardian rules evaluate in INR. Orders convert live INR to USD for PayPal Orders API v2.',
+    },
     endpoints: {
       createOrder: 'POST /api/paypal/create-order',
       approveOrder: 'POST /api/paypal/approve-order',
       captureOrder: 'POST /api/paypal/capture-order',
       webhook: 'POST /api/paypal/webhook',
       orderDetails: 'GET /api/paypal/orders/:orderId',
+      exchangeRate: 'GET /api/currency/rate',
     },
   };
 }
@@ -189,11 +207,9 @@ export async function createPayPalOrder(params: CreateOrderParams) {
     throw new Error('SECURITY VIOLATION: Invalid payment amount. Amount must be a positive number.');
   }
 
-  // Supported PayPal Sandbox currencies
-  const validCurrencies = ['USD', 'EUR', 'GBP', 'CAD', 'AUD', 'INR', 'JPY', 'SGD', 'HKD', 'NZD', 'CHF'];
-  const currencyCode = validCurrencies.includes(params.currency?.toUpperCase()) 
-    ? params.currency.toUpperCase() 
-    : 'USD';
+  // Convert INR amount into USD before sending to PayPal Sandbox Orders API
+  // PayPal REST Orders API does not support INR directly.
+  const conversion = await convertToPayPalUsd(params.amount, params.currency || 'INR');
 
   // Obtain verified access token (throws if credentials are missing or invalid)
   const accessToken = await getPayPalAccessToken();
@@ -203,11 +219,11 @@ export async function createPayPalOrder(params: CreateOrderParams) {
     purchase_units: [
       {
         reference_id: params.requestId,
-        description: `PACTPAY: ${params.product.substring(0, 120)} (${params.merchant})`,
+        description: `PACTPAY: ${params.product.substring(0, 60)} (Orig: ₹${params.amount.toLocaleString('en-IN')} INR @ 1 USD = ₹${conversion.inverseRate.toFixed(2)} INR)`,
         custom_id: params.requestId,
         amount: {
-          currency_code: currencyCode,
-          value: params.amount.toFixed(2),
+          currency_code: 'USD', // Send only USD to PayPal Orders API
+          value: conversion.convertedAmount.toFixed(2),
         },
       },
     ],
@@ -244,11 +260,17 @@ export async function createPayPalOrder(params: CreateOrderParams) {
     throw new Error('PAYPAL_ORDER_CREATION_FAILED: PayPal did not return a valid order ID.');
   }
 
+  // Store conversion metadata for audit and capture reference
+  orderConversionsMap.set(orderData.id, conversion);
+
   return {
     orderId: orderData.id,
     status: orderData.status, // e.g. 'CREATED'
-    currency: currencyCode,
-    amount: params.amount,
+    currency: 'USD',
+    amount: conversion.convertedAmount,
+    originalAmount: conversion.originalAmount,
+    originalCurrency: conversion.originalCurrency,
+    conversion,
     createdAt: orderData.create_time || new Date().toISOString(),
     links: orderData.links || [],
     rawPayPalResponse: orderData,
@@ -339,6 +361,8 @@ export async function approvePayPalOrder(params: ApproveOrderParams) {
   };
   approvedOrdersMap.set(orderId, approvedRecord);
 
+  const conversion = orderConversionsMap.get(orderId);
+
   return {
     success: true,
     approved: true,
@@ -350,6 +374,7 @@ export async function approvePayPalOrder(params: ApproveOrderParams) {
     approvalAuditSignature,
     intent: orderData.intent,
     amount: orderData.purchase_units?.[0]?.amount,
+    conversion,
     links: orderData.links || [],
     rawPayPalResponse: orderData,
   };
@@ -448,6 +473,8 @@ export async function capturePayPalOrder(params: CaptureOrderParams) {
       requestId: params.requestId,
     });
 
+    const conversion = orderConversionsMap.get(orderId);
+
     return {
       success: true,
       status: 'COMPLETED' as const,
@@ -457,8 +484,11 @@ export async function capturePayPalOrder(params: CaptureOrderParams) {
       payerName,
       executedAt,
       auditProof,
-      amount: Number(captureUnit?.amount?.value) || 0,
+      amount: Number(captureUnit?.amount?.value) || conversion?.convertedAmount || 0,
       currency: captureUnit?.amount?.currency_code || 'USD',
+      originalAmount: conversion?.originalAmount,
+      originalCurrency: conversion?.originalCurrency || 'INR',
+      conversion,
       rawPayPalResponse: captureData,
     };
   } finally {

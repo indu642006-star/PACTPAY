@@ -13,7 +13,9 @@ import {
   RotateCw,
   Key,
   Layers,
-  Info
+  Info,
+  ArrowRightLeft,
+  DollarSign
 } from 'lucide-react';
 import { usePactPay } from '../../context/PactPayContext';
 
@@ -22,10 +24,33 @@ export const PayPalConsole: React.FC = () => {
   const [webhookResult, setWebhookResult] = useState<any>(null);
   const [testingWebhook, setTestingWebhook] = useState(false);
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [exchangeRateInfo, setExchangeRateInfo] = useState<any>(null);
+  const [calculatorInr, setCalculatorInr] = useState<number>(2000);
+
+  const fetchExchangeRate = async () => {
+    try {
+      const res = await fetch('/api/currency/rate');
+      const data = await res.json();
+      if (data.success && data.rateInfo) {
+        setExchangeRateInfo(data.rateInfo);
+      }
+    } catch {
+      setExchangeRateInfo({
+        rate: 0.010643,
+        inverseRate: 93.95,
+        source: 'Live Forex Market Reference',
+        isFallback: true,
+      });
+    }
+  };
+
+  useEffect(() => {
+    fetchExchangeRate();
+  }, []);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
-    await refreshPayPalStatus();
+    await Promise.all([refreshPayPalStatus(), fetchExchangeRate()]);
     setIsRefreshing(false);
   };
 
@@ -34,6 +59,9 @@ export const PayPalConsole: React.FC = () => {
     setWebhookResult(null);
 
     try {
+      const rate = exchangeRateInfo?.rate || 0.010643;
+      const usdValue = (1840 * rate).toFixed(2);
+
       const payload = {
         id: `WH-${Date.now()}`,
         event_version: '1.0',
@@ -43,7 +71,8 @@ export const PayPalConsole: React.FC = () => {
         resource: {
           id: `CAP-SANDBOX-${Date.now()}`,
           status: 'COMPLETED',
-          amount: { value: '1840.00', currency_code: 'INR' },
+          amount: { value: usdValue, currency_code: 'USD' },
+          custom_id: 'pactpay-orig-INR-1840',
         },
       };
 
@@ -167,6 +196,72 @@ export const PayPalConsole: React.FC = () => {
           )}
         </div>
       )}
+
+      {/* Currency Conversion Layer Panel */}
+      <div className="p-5 rounded-2xl bg-gradient-to-br from-indigo-950/40 via-[#0a1634] to-slate-900 border border-indigo-500/30 shadow-xl space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <div className="p-2 rounded-xl bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+              <ArrowRightLeft className="w-5 h-5" />
+            </div>
+            <div>
+              <h2 className="text-sm font-bold text-white flex items-center gap-2">
+                <span>Safe Currency Conversion Layer</span>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 font-mono font-semibold">
+                  INR → USD AUTO-GATEWAY
+                </span>
+              </h2>
+              <p className="text-xs text-slate-400">
+                PayPal REST Orders API does not support INR. All internal budgets, Guardian rules, and dashboard balances operate in INR; approved amounts auto-convert to USD for PayPal Orders execution.
+              </p>
+            </div>
+          </div>
+
+          <div className="flex items-center gap-2 font-mono text-xs">
+            <span className="px-2.5 py-1 rounded-lg bg-slate-900 border border-slate-700 text-cyan-300 font-bold">
+              1 USD = ₹{exchangeRateInfo?.inverseRate.toFixed(2) || '93.95'} INR
+            </span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-xs">
+          <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-800 space-y-1">
+            <span className="text-[10px] text-slate-400 uppercase font-semibold">Exchange Rate Source</span>
+            <p className="font-semibold text-slate-200 truncate">{exchangeRateInfo?.source || 'open.er-api.com (Live Forex Market)'}</p>
+            <span className="text-[10px] text-slate-400 block">
+              Updated: {exchangeRateInfo?.timestamp ? new Date(exchangeRateInfo.timestamp).toLocaleTimeString() : 'Live'}
+            </span>
+          </div>
+
+          <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-800 space-y-1">
+            <span className="text-[10px] text-slate-400 uppercase font-semibold">Dual-Currency Custody</span>
+            <p className="font-semibold text-emerald-400">Both INR &amp; USD Stored</p>
+            <span className="text-[10px] text-slate-400 block">
+              Audits and transaction ledger record exact INR and converted USD
+            </span>
+          </div>
+
+          <div className="p-3 rounded-xl bg-slate-950/70 border border-slate-800 space-y-1.5">
+            <span className="text-[10px] text-slate-400 uppercase font-semibold">Live Conversion Preview</span>
+            <div className="flex items-center gap-2">
+              <div className="flex-1 flex items-center bg-slate-900 border border-slate-700 rounded-lg px-2 py-1">
+                <span className="text-slate-500 mr-1 text-[11px]">₹</span>
+                <input
+                  type="number"
+                  value={calculatorInr}
+                  onChange={(e) => setCalculatorInr(Math.max(1, Number(e.target.value) || 0))}
+                  className="w-full bg-transparent text-xs text-white focus:outline-none"
+                  placeholder="INR"
+                />
+              </div>
+              <span className="text-slate-500 font-bold">→</span>
+              <div className="px-2.5 py-1 rounded-lg bg-emerald-950/60 border border-emerald-500/40 text-emerald-300 font-mono font-bold text-xs whitespace-nowrap">
+                ${((calculatorInr * (exchangeRateInfo?.rate || 0.010643))).toFixed(2)} USD
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
 
       {/* Security Architecture Cards */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">

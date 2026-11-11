@@ -37,6 +37,19 @@ export interface HumanDecision {
   authMethod?: 'MANUAL_SIGN_OFF' | 'BIOMETRIC_PASSKEY' | 'MFA_CONFIRMED';
 }
 
+export interface CurrencyConversionInfo {
+  originalAmount: number;
+  originalCurrency: string; // 'INR'
+  convertedAmount: number;  // Converted USD amount sent to PayPal
+  convertedCurrency: string;// 'USD'
+  exchangeRate: number;     // 1 INR in USD
+  inverseRate: number;      // 1 USD in INR
+  rateSource: string;
+  rateTimestamp: string;
+  isFallbackRate: boolean;
+  formattedText: string;
+}
+
 export interface PaymentDetails {
   orderId: string;
   captureId?: string;
@@ -45,6 +58,9 @@ export interface PaymentDetails {
   payerName?: string;
   amount: number;
   currency: string;
+  originalAmount?: number;
+  originalCurrency?: string;
+  conversion?: CurrencyConversionInfo;
   executedAt: string;
   simulated?: boolean;
 }
@@ -58,6 +74,7 @@ export interface PurchaseRequest {
   budget: number;
   estimatedAmount: number;
   currency: string;
+  conversionPreview?: CurrencyConversionInfo;
   merchant: string;
   intentSummary: string;
   category: string;
@@ -94,8 +111,14 @@ export interface TransactionRecord {
   captureId?: string;
   merchant: string;
   product: string;
-  amount: number;
-  currency: string;
+  amount: number; // Internal INR amount
+  currency: string; // 'INR'
+  usdAmount?: number; // Converted USD amount sent to PayPal
+  usdCurrency?: string; // 'USD'
+  exchangeRate?: number;
+  inverseRate?: number;
+  rateSource?: string;
+  conversion?: CurrencyConversionInfo;
   status: 'COMPLETED' | 'BLOCKED' | 'DECLINED' | 'PENDING';
   paypalPayerEmail?: string;
   timestamp: string;

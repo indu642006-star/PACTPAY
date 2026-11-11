@@ -204,8 +204,13 @@ const initialSampleTransactions: TransactionRecord[] = [
     orderId: 'PENDING_PAYPAL_SETUP',
     merchant: 'DigitalOcean',
     product: 'DigitalOcean Kubernetes Hosting Credits',
-    amount: 65,
-    currency: 'USD',
+    amount: 5400,
+    currency: 'INR',
+    usdAmount: 57.47,
+    usdCurrency: 'USD',
+    exchangeRate: 0.010643,
+    inverseRate: 93.95,
+    rateSource: 'open.er-api.com (Live Forex Market)',
     status: 'PENDING',
     timestamp: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
     guardianRiskScore: 8,
@@ -220,8 +225,13 @@ const initialSampleTransactions: TransactionRecord[] = [
     orderId: 'N/A - BLOCKED_BY_FIREWALL',
     merchant: 'BetOnline',
     product: 'VIP Casino Betting Vouchers (x25)',
-    amount: 500,
-    currency: 'USD',
+    amount: 42000,
+    currency: 'INR',
+    usdAmount: 447.00,
+    usdCurrency: 'USD',
+    exchangeRate: 0.010643,
+    inverseRate: 93.95,
+    rateSource: 'open.er-api.com (Live Forex Market)',
     status: 'BLOCKED',
     timestamp: new Date(Date.now() - 44 * 60 * 1000).toISOString(),
     guardianRiskScore: 95,
@@ -237,6 +247,11 @@ const initialSampleTransactions: TransactionRecord[] = [
     product: 'Dell UltraSharp 32-inch 6K Monitors (x4)',
     amount: 280000,
     currency: 'INR',
+    usdAmount: 2980.04,
+    usdCurrency: 'USD',
+    exchangeRate: 0.010643,
+    inverseRate: 93.95,
+    rateSource: 'open.er-api.com (Live Forex Market)',
     status: 'BLOCKED',
     timestamp: new Date(Date.now() - 59 * 60 * 1000).toISOString(),
     guardianRiskScore: 88,
@@ -280,6 +295,27 @@ const initialSampleAuditLogs: AuditLogEntry[] = [
     details: { riskScore: 95, merchant: 'BetOnline' },
     timestamp: new Date(Date.now() - 44 * 60 * 1000).toISOString(),
     auditHash: 'c3d4e5f60718293a4b5c6d7e8f90a1b2',
+    isSampleData: true,
+  },
+  {
+    id: 'LOG-004',
+    userId: 'pactpay-officer-001',
+    requestId: 'REQ-102',
+    eventType: 'PAYPAL_ORDER_CREATED',
+    summary: 'PayPal Sandbox Order ORD-SANDBOX-781 created for $57.47 USD (converted from ₹5,400.00 INR @ 1 USD = ₹93.95 INR via open.er-api.com)',
+    actor: 'PayPal Sandbox Gateway',
+    details: {
+      orderId: 'ORD-SANDBOX-781',
+      originalAmount: 5400,
+      originalCurrency: 'INR',
+      convertedAmount: 57.47,
+      convertedCurrency: 'USD',
+      exchangeRate: 0.010643,
+      inverseRate: 93.95,
+      rateSource: 'open.er-api.com (Live Forex Market)',
+    },
+    timestamp: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
+    auditHash: 'd4e5f60718293a4b5c6d7e8f90a1b2c3',
     isSampleData: true,
   },
 ];
@@ -461,6 +497,21 @@ export const PactPayProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const requestId = `REQ-${Date.now().toString().slice(-6)}`;
       const now = new Date().toISOString();
 
+      let conversionPreview: any = undefined;
+      try {
+        const convRes = await fetch('/api/currency/convert', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ amount: intent.estimatedAmount, currency: intent.currency || 'INR' }),
+        });
+        if (convRes.ok) {
+          const convData = await convRes.json();
+          conversionPreview = convData.conversion;
+        }
+      } catch (err) {
+        console.warn('[PACTPAY Currency] Conversion preview error:', err);
+      }
+
       const newRequest: PurchaseRequest = {
         id: requestId,
         userId: user?.uid || 'pactpay-officer-001',
@@ -470,6 +521,7 @@ export const PactPayProvider: React.FC<{ children: React.ReactNode }> = ({ child
         budget: intent.budget,
         estimatedAmount: intent.estimatedAmount,
         currency: intent.currency,
+        conversionPreview,
         merchant: intent.merchant,
         intentSummary: intent.intentSummary,
         category: intent.category,
@@ -766,9 +818,9 @@ export const PactPayProvider: React.FC<{ children: React.ReactNode }> = ({ child
         userId: user?.uid || 'pactpay-officer-001',
         requestId: target.id,
         eventType: 'PAYPAL_ORDER_CREATED',
-        summary: `PayPal Sandbox Order ${order.orderId} created for ${target.currency} ${target.estimatedAmount} (${order.status})`,
+        summary: `PayPal Sandbox Order ${order.orderId} created for $${Number(order.amount).toFixed(2)} USD (converted from ₹${target.estimatedAmount.toLocaleString('en-IN')} INR @ 1 USD = ₹${order.conversion?.inverseRate ? Number(order.conversion.inverseRate).toFixed(2) : '93.95'} INR via ${order.conversion?.rateSource || 'Forex'})`,
         actor: 'PayPal Sandbox Gateway',
-        details: { order },
+        details: { order, conversion: order.conversion, originalAmount: target.estimatedAmount, originalCurrency: target.currency },
       });
 
       // Step B: Server verifies and approves PayPal Order with human sign-off signature
@@ -848,7 +900,12 @@ export const PactPayProvider: React.FC<{ children: React.ReactNode }> = ({ child
           merchant: target.merchant,
           product: target.product,
           amount: target.estimatedAmount,
-          currency: target.currency,
+          currency: target.currency || 'INR',
+          usdAmount: order.amount,
+          usdCurrency: 'USD',
+          exchangeRate: order.conversion?.exchangeRate,
+          inverseRate: order.conversion?.inverseRate,
+          rateSource: order.conversion?.rateSource,
           status: 'DECLINED',
           timestamp: new Date().toISOString(),
           guardianRiskScore: target.guardianEvaluation?.riskScore || 10,
@@ -891,7 +948,8 @@ export const PactPayProvider: React.FC<{ children: React.ReactNode }> = ({ child
         throw new Error(`PayPal returned non-completed status: ${captureResult.status}. Payment was not finalized.`);
       }
 
-      // Step C: Record verified successful transaction in ledger
+      // Step C: Record verified successful transaction in ledger with both currencies
+      const conversionData = captureResult.conversion || order.conversion;
       const newTx: TransactionRecord = {
         id: `TXN-${Date.now().toString().slice(-6)}`,
         userId: user?.uid || 'pactpay-officer-001',
@@ -900,8 +958,14 @@ export const PactPayProvider: React.FC<{ children: React.ReactNode }> = ({ child
         captureId: captureResult.captureId,
         merchant: target.merchant,
         product: target.product,
-        amount: captureResult.amount || target.estimatedAmount,
-        currency: captureResult.currency || target.currency,
+        amount: target.estimatedAmount, // Internal INR amount
+        currency: target.currency || 'INR', // 'INR'
+        usdAmount: Number(captureResult.amount) || order.amount, // Converted USD captured by PayPal
+        usdCurrency: captureResult.currency || 'USD',
+        exchangeRate: conversionData?.exchangeRate,
+        inverseRate: conversionData?.inverseRate,
+        rateSource: conversionData?.rateSource,
+        conversion: conversionData,
         status: 'COMPLETED',
         paypalPayerEmail: captureResult.payerEmail || user?.email || 'verified-payer@paypal.sandbox',
         timestamp: captureResult.executedAt || new Date().toISOString(),
@@ -924,8 +988,11 @@ export const PactPayProvider: React.FC<{ children: React.ReactNode }> = ({ child
               paypalStatus: captureResult.status,
               payerEmail: captureResult.payerEmail,
               payerName: captureResult.payerName,
-              amount: newTx.amount,
-              currency: newTx.currency,
+              amount: newTx.usdAmount || newTx.amount,
+              currency: newTx.usdCurrency || 'USD',
+              originalAmount: target.estimatedAmount,
+              originalCurrency: target.currency || 'INR',
+              conversion: conversionData,
               executedAt: captureResult.executedAt,
             },
             updatedAt: new Date().toISOString(),
@@ -934,14 +1001,14 @@ export const PactPayProvider: React.FC<{ children: React.ReactNode }> = ({ child
         return r;
       }));
 
-      // Log verified PayPal execution confirmation
+      // Log verified PayPal execution confirmation with both currencies
       await addAuditLog({
         userId: user?.uid || 'pactpay-officer-001',
         requestId: target.id,
         eventType: 'PAYPAL_PAYMENT_CAPTURED',
-        summary: `PayPal Sandbox captured transaction: ${captureResult.captureId} (Order ${captureResult.orderId}) confirmed COMPLETED by PayPal.`,
+        summary: `PayPal Sandbox captured $${(newTx.usdAmount || 0).toFixed(2)} USD for ${target.product} (Authorized: ₹${target.estimatedAmount.toLocaleString('en-IN')} INR @ 1 USD = ₹${(conversionData?.inverseRate || 93.95).toFixed(2)} INR). Capture ID: ${captureResult.captureId}`,
         actor: 'PayPal Sandbox Gateway',
-        details: { captureResult, tx: newTx },
+        details: { captureResult, tx: newTx, conversion: conversionData },
       });
 
       // Requirement 7: Record successful transactions in Firestore

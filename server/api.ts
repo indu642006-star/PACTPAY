@@ -13,16 +13,55 @@ import {
   isDuplicateWebhookEvent,
   recordProcessedWebhookEvent
 } from './paypal';
+import { getInrToUsdExchangeRate, convertToPayPalUsd } from './currency';
 
 export const apiRouter = Router();
 
-// 1. Check PayPal Sandbox configuration status
+// 1a. Check PayPal Sandbox configuration status
 apiRouter.get('/paypal/status', (_req: Request, res: Response) => {
   const status = getPayPalConfigStatus();
   res.json({
     success: true,
     status,
   });
+});
+
+// 1b. Real-time Exchange Rate Endpoint (INR -> USD)
+apiRouter.get('/currency/rate', async (_req: Request, res: Response) => {
+  try {
+    const rateInfo = await getInrToUsdExchangeRate();
+    res.json({
+      success: true,
+      rateInfo,
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Failed to retrieve exchange rate',
+    });
+  }
+});
+
+// 1c. Currency Conversion Preview Endpoint
+apiRouter.post('/currency/convert', async (req: Request, res: Response) => {
+  try {
+    const { amount, currency } = req.body;
+    const num = Number(amount);
+    if (isNaN(num) || num <= 0) {
+      res.status(400).json({ error: 'Valid positive amount required' });
+      return;
+    }
+    const conversion = await convertToPayPalUsd(num, currency || 'INR');
+    res.json({
+      success: true,
+      conversion,
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      error: error.message || 'Conversion failed',
+    });
+  }
 });
 
 // 2. AI Purchase Assistant endpoint

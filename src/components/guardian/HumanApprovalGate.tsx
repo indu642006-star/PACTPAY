@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   UserCheck, 
   ShieldCheck, 
@@ -17,7 +17,8 @@ import {
   Clock,
   Sparkles,
   Code2,
-  Info
+  Info,
+  RefreshCw
 } from 'lucide-react';
 import { usePactPay } from '../../context/PactPayContext';
 import { useAuth } from '../../context/AuthContext';
@@ -34,6 +35,38 @@ export const HumanApprovalGate: React.FC = () => {
   const [authError, setAuthError] = useState<string | null>(null);
   const [inspectPayloadReq, setInspectPayloadReq] = useState<PurchaseRequest | null>(null);
   const [showGuideModal, setShowGuideModal] = useState(false);
+
+  // Live currency conversion rate state
+  const [exchangeRateInfo, setExchangeRateInfo] = useState<{
+    rate: number;
+    inverseRate: number;
+    source: string;
+    isFallback: boolean;
+  } | null>(null);
+
+  useEffect(() => {
+    fetch('/api/currency/rate')
+      .then(res => res.json())
+      .then(data => {
+        if (data.success && data.rateInfo) {
+          setExchangeRateInfo(data.rateInfo);
+        }
+      })
+      .catch(() => {
+        setExchangeRateInfo({
+          rate: 0.010643,
+          inverseRate: 93.95,
+          source: 'Forex Reference',
+          isFallback: true,
+        });
+      });
+  }, []);
+
+  const getUsdAmount = (inrAmount: number) => {
+    const rate = exchangeRateInfo?.rate || 0.010643;
+    const usd = inrAmount * rate;
+    return Math.max(0.01, usd).toFixed(2);
+  };
 
   // Filter requests that are awaiting human decision OR human-approved awaiting PayPal execution
   const pendingRequests = requests.filter(r => r.status === 'guardian_approved');
@@ -198,9 +231,15 @@ export const HumanApprovalGate: React.FC = () => {
 
                 <div className="pt-2 border-t border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                   <div>
-                    <span className="text-[10px] text-slate-400 uppercase">Amount</span>
+                    <span className="text-[10px] text-slate-400 uppercase font-semibold">Approved Budget (INR)</span>
                     <div className="text-base font-extrabold text-cyan-300">
-                      {req.currency} {req.estimatedAmount.toLocaleString()}
+                      ₹{req.estimatedAmount.toLocaleString('en-IN')} INR
+                    </div>
+                    <div className="flex items-center gap-1.5 text-[11px] font-mono text-emerald-400 font-bold mt-0.5">
+                      <span>PayPal Orders Charge: ${getUsdAmount(req.estimatedAmount)} USD</span>
+                    </div>
+                    <div className="text-[10px] text-slate-400 mt-0.5">
+                      Rate: 1 USD = ₹{exchangeRateInfo?.inverseRate.toFixed(2) || '93.95'} INR ({exchangeRateInfo?.source?.split(' ')[0] || 'Live Forex'})
                     </div>
                   </div>
                   <div className="flex flex-col items-end">
@@ -290,12 +329,18 @@ export const HumanApprovalGate: React.FC = () => {
                   </div>
 
                   <div className="text-left sm:text-right">
-                    <span className="text-[10px] text-slate-400 uppercase tracking-wider">Payment Amount</span>
+                    <span className="text-[10px] text-slate-400 uppercase tracking-wider font-semibold">Payment Amount (INR)</span>
                     <div className="text-xl font-extrabold text-cyan-300">
-                      {req.currency} {req.estimatedAmount.toLocaleString()}
+                      ₹{req.estimatedAmount.toLocaleString('en-IN')} INR
                     </div>
-                    <span className="text-[11px] text-slate-400">
-                      Budget Ceiling: {req.currency} {req.budget.toLocaleString()}
+                    <div className="text-xs font-mono text-emerald-400 font-bold mt-0.5">
+                      ≈ ${getUsdAmount(req.estimatedAmount)} USD
+                    </div>
+                    <span className="text-[10px] text-slate-400 block mt-0.5">
+                      Rate: 1 USD = ₹{exchangeRateInfo?.inverseRate.toFixed(2) || '93.95'} INR
+                    </span>
+                    <span className="text-[11px] text-slate-400 block mt-0.5">
+                      Budget Ceiling: ₹{req.budget.toLocaleString('en-IN')} INR
                     </span>
                   </div>
                 </div>
@@ -513,18 +558,23 @@ export const HumanApprovalGate: React.FC = () => {
               </div>
 
               <div>
-                <span className="text-[10px] uppercase font-bold text-slate-400 mb-1 block">Create Order Request Body (JSON)</span>
-                <pre className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-[11px] font-mono text-cyan-300 overflow-x-auto max-h-40">
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-[10px] uppercase font-bold text-slate-400">PayPal REST v2 Order Body (Sent to PayPal as USD)</span>
+                  <span className="text-[10px] font-mono text-emerald-400 font-semibold">
+                    1 USD = ₹{exchangeRateInfo?.inverseRate.toFixed(2) || '93.95'} INR
+                  </span>
+                </div>
+                <pre className="p-3 rounded-xl bg-slate-950 border border-slate-800 text-[11px] font-mono text-cyan-300 overflow-x-auto max-h-48">
 {JSON.stringify({
   intent: "CAPTURE",
   purchase_units: [
     {
       reference_id: inspectPayloadReq.id,
-      description: inspectPayloadReq.product,
+      description: `PACTPAY: ${inspectPayloadReq.product} (Orig: ₹${inspectPayloadReq.estimatedAmount.toLocaleString('en-IN')} INR @ 1 USD = ₹${exchangeRateInfo?.inverseRate.toFixed(2) || '93.95'} INR)`,
       custom_id: `pactpay-officer-auth-${inspectPayloadReq.id}`,
       amount: {
-        currency_code: inspectPayloadReq.currency,
-        value: inspectPayloadReq.estimatedAmount.toFixed(2),
+        currency_code: "USD",
+        value: getUsdAmount(inspectPayloadReq.estimatedAmount),
       },
     },
   ],
@@ -534,6 +584,10 @@ export const HumanApprovalGate: React.FC = () => {
   },
 }, null, 2)}
                 </pre>
+                <div className="mt-1.5 p-2 rounded-lg bg-emerald-950/20 border border-emerald-500/30 text-[10px] text-emerald-300 flex items-center justify-between">
+                  <span>Authorized: ₹{inspectPayloadReq.estimatedAmount.toLocaleString('en-IN')} INR</span>
+                  <span>→ Transmitted to PayPal: <strong>${getUsdAmount(inspectPayloadReq.estimatedAmount)} USD</strong></span>
+                </div>
               </div>
 
               <div className="p-3 rounded-xl bg-amber-950/30 border border-amber-800/40 text-[11px] text-amber-200 flex items-start gap-2">

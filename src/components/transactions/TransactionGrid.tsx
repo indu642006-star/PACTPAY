@@ -168,15 +168,23 @@ export const TransactionGrid: React.FC = () => {
     },
     {
       field: 'amount',
-      headerName: 'Amount',
-      width: 140,
+      headerName: 'Amount (INR / USD)',
+      width: 175,
       cellRenderer: (params: ICellRendererParams<TransactionRecord>) => {
         const curr = params.data?.currency || 'INR';
         const num = Number(params.value) || 0;
+        const usd = params.data?.usdAmount;
         return (
-          <span className="font-mono font-bold text-cyan-400">
-            {curr} {num.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </span>
+          <div className="flex flex-col justify-center leading-tight py-1">
+            <span className="font-mono font-bold text-cyan-400">
+              ₹{num.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} {curr}
+            </span>
+            {usd !== undefined && usd > 0 && (
+              <span className="text-[10px] font-mono text-emerald-400 font-semibold">
+                ≈ ${usd.toFixed(2)} USD
+              </span>
+            )}
+          </div>
         );
       },
     },
@@ -533,11 +541,27 @@ export const TransactionGrid: React.FC = () => {
                   <span className="text-slate-200 font-semibold">{selectedTx.merchant}</span>
                 </div>
                 <div className="flex justify-between py-1 border-b border-slate-800/60">
-                  <span className="text-slate-400">Amount:</span>
+                  <span className="text-slate-400">Internal Amount (INR):</span>
                   <span className="text-cyan-300 font-mono font-bold">
-                    {selectedTx.currency} {selectedTx.amount.toFixed(2)}
+                    ₹{selectedTx.amount.toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} INR
                   </span>
                 </div>
+                {selectedTx.usdAmount !== undefined && (
+                  <div className="flex justify-between py-1 border-b border-slate-800/60">
+                    <span className="text-slate-400">PayPal Gateway (USD):</span>
+                    <span className="text-emerald-400 font-mono font-bold">
+                      ${selectedTx.usdAmount.toFixed(2)} USD
+                    </span>
+                  </div>
+                )}
+                {selectedTx.inverseRate && (
+                  <div className="flex justify-between py-1 border-b border-slate-800/60">
+                    <span className="text-slate-400">Forex Conversion Rate:</span>
+                    <span className="text-slate-300 font-mono text-[11px]">
+                      1 USD = ₹{selectedTx.inverseRate.toFixed(2)} INR ({selectedTx.rateSource?.split(' ')[0] || 'Forex API'})
+                    </span>
+                  </div>
+                )}
                 <div className="flex justify-between py-1 border-b border-slate-800/60">
                   <span className="text-slate-400">PayPal Order ID:</span>
                   <span className="text-slate-300 font-mono text-[11px]">{selectedTx.orderId}</span>
