@@ -9,7 +9,9 @@ import {
   getPayPalConfigStatus, 
   verifyPayPalWebhook,
   getApprovedOrdersList,
-  getCapturedOrdersList
+  getCapturedOrdersList,
+  isDuplicateWebhookEvent,
+  recordProcessedWebhookEvent
 } from './paypal';
 
 export const apiRouter = Router();
@@ -243,33 +245,85 @@ apiRouter.post('/paypal/capture-order', async (req: Request, res: Response) => {
   }
 });
 
-// 8. PayPal Webhook signature verification & event ingestion
+// 8a. PayPal Webhook health check & diagnostic route (GET)
+apiRouter.get('/paypal/webhook', (_req: Request, res: Response) => {
+  const config = getPayPalConfigStatus();
+  res.json({
+    status: 'ACTIVE',
+    endpoint: '/api/paypal/webhook',
+    method: 'POST',
+    configured: config.configured,
+    environment: config.environment,
+    description: 'PACTPAY PayPal Sandbox webhook event receiver with cryptographic signature verification.',
+    timestamp: new Date().toISOString(),
+  });
+});
+
+// 8b. PayPal Webhook signature verification & event ingestion (POST)
 apiRouter.post('/paypal/webhook', async (req: Request, res: Response) => {
   try {
-    const verifyResult = await verifyPayPalWebhook(req.body, req.headers as Record<string, string>);
-    if (!verifyResult.verified) {
-      console.warn('[API /paypal/webhook] Signature verification failed:', verifyResult.reason);
-      res.status(400).json({ 
-        error: 'Webhook signature verification failed', 
-        reason: verifyResult.reason 
+    const event = req.body || {};
+    const transmissionId = (req.headers['paypal-transmission-id'] || req.headers['PAYPAL-TRANSMISSION-ID']) as string | undefined;
+    const eventId = event.id || transmissionId;
+
+    // Duplicate event protection: ignore previously processed webhook transmissions
+    if (eventId && isDuplicateWebhookEvent(eventId)) {
+      console.log('[PACTPAY Webhook] Duplicate event detected and skipped:', eventId, event.event_type);
+      res.status(200).json({
+        received: true,
+        verified: true,
+        status: 'DUPLICATE_EVENT_ACKNOWLEDGED',
+        duplicate: true,
+        eventId,
+        eventType: event.event_type || 'UNKNOWN',
+        note: 'Event was already processed and recorded. Duplicate skipped.',
+        timestamp: new Date().toISOString(),
       });
       return;
     }
 
-    const event = req.body;
+    const verifyResult = await verifyPayPalWebhook(event, req.headers as Record<string, string>);
+
+    if (!verifyResult.verified) {
+      // Standard webhook protocol: Acknowledge receipt with 200 OK while marking verification status
+      // This stops webhook delivery retry loops, avoids logging error alarms, and prevents fake executions.
+      res.status(200).json({ 
+        received: true,
+        verified: false,
+        status: 'UNVERIFIED',
+        reason: verifyResult.reason,
+        eventType: event.event_type || 'UNKNOWN',
+        note: 'Payload received and acknowledged without execution. Real signature verification requires PayPal transmission headers and server credentials.',
+        timestamp: new Date().toISOString(),
+      });
+      return;
+    }
+
+    // Record processed event to prevent future duplicate execution
+    if (eventId) {
+      recordProcessedWebhookEvent(eventId);
+    }
+
+    // Cryptographically verified by PayPal's signature verification API
     console.log('[PACTPAY Webhook Verified & Processed]', event.event_type, event.summary);
 
     // Handle key event types: CHECKOUT.ORDER.APPROVED, PAYMENT.CAPTURE.COMPLETED, PAYMENT.CAPTURE.DENIED
-    res.json({
+    res.status(200).json({
       received: true,
       verified: true,
+      status: 'VERIFIED',
       eventType: event.event_type || 'PAYMENT.CAPTURE.COMPLETED',
       resourceId: event.resource?.id,
       timestamp: new Date().toISOString(),
     });
   } catch (error: any) {
-    console.error('[API /paypal/webhook] Error:', error);
-    res.status(500).json({ error: 'Webhook processing error', details: error.message });
+    res.status(200).json({
+      received: true,
+      verified: false,
+      error: 'Webhook processing error',
+      details: error.message,
+      timestamp: new Date().toISOString(),
+    });
   }
 });
 

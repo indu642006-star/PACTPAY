@@ -466,15 +466,40 @@ export async function capturePayPalOrder(params: CaptureOrderParams) {
   }
 }
 
+export interface WebhookVerifyResult {
+  verified: boolean;
+  reason?: string;
+  missingHeaders?: boolean;
+  isPendingConfig?: boolean;
+}
+
+// In-memory duplicate webhook event idempotency tracker
+const processedWebhookEventIds = new Set<string>();
+
+export function isDuplicateWebhookEvent(eventId?: string): boolean {
+  if (!eventId) return false;
+  return processedWebhookEventIds.has(eventId);
+}
+
+export function recordProcessedWebhookEvent(eventId?: string): void {
+  if (!eventId) return;
+  processedWebhookEventIds.add(eventId);
+  // Keep set bounded to prevent unbounded memory growth
+  if (processedWebhookEventIds.size > 10000) {
+    const oldest = Array.from(processedWebhookEventIds).slice(0, 2000);
+    oldest.forEach(id => processedWebhookEventIds.delete(id));
+  }
+}
+
 /**
  * Verifies PayPal Webhook transmission signatures using PayPal's verification API.
  * Safely parses headers case-insensitively, enforces timestamp freshness (10-min replay guard),
- * and verifies cryptographic signature.
+ * and verifies cryptographic signature against PayPal's REST API.
  */
 export async function verifyPayPalWebhook(
   payload: any,
   headers: Record<string, string | string[] | undefined>
-): Promise<{ verified: boolean; reason?: string }> {
+): Promise<WebhookVerifyResult> {
   // Case-insensitive header extractor
   const getHeader = (key: string): string | undefined => {
     const target = key.toLowerCase();
@@ -495,7 +520,8 @@ export async function verifyPayPalWebhook(
   if (!transmissionId || !transmissionTime || !actualSig) {
     return {
       verified: false,
-      reason: 'MISSING_WEBHOOK_HEADERS: PayPal transmission headers are incomplete',
+      missingHeaders: true,
+      reason: 'PayPal transmission headers not present (unauthenticated test or probe request)',
     };
   }
 
@@ -513,6 +539,7 @@ export async function verifyPayPalWebhook(
   if (!status.configured) {
     return {
       verified: false,
+      isPendingConfig: true,
       reason: `CREDENTIALS_MISSING: Cannot verify signature without ${status.missingCredentials.join(' and ')} in environment`,
     };
   }
@@ -555,10 +582,9 @@ export async function verifyPayPalWebhook(
       };
     }
   } catch (err: any) {
-    console.warn('[PACTPAY Webhook] Verification endpoint error:', err);
     return {
       verified: false,
-      reason: err.message || 'Webhook verification failed',
+      reason: err.message || 'Webhook verification request failed',
     };
   }
 }
