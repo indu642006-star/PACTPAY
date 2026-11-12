@@ -277,11 +277,29 @@ apiRouter.post('/paypal/capture-order', async (req: Request, res: Response) => {
     console.error('[API /paypal/capture-order] Error:', error);
     const isDuplicate = error.message?.includes('DUPLICATE') || error.message?.includes('CONCURRENT');
     const isAuthError = error.message?.includes('CREDENTIALS') || error.message?.includes('AUTHENTICATION');
-    res.status(isDuplicate ? 409 : isAuthError ? 401 : 500).json({
+    const isNotApproved = error.message?.includes('ORDER_NOT_APPROVED');
+    res.status(isDuplicate ? 409 : isAuthError ? 401 : isNotApproved ? 422 : 500).json({
       success: false,
       error: error.message || 'PayPal order capture failed',
     });
   }
+});
+
+// 7b. PayPal Checkout Return Callback (GET)
+// When buyer clicks "Agree & Pay" on PayPal Sandbox, PayPal redirects here.
+apiRouter.get('/paypal/return', (req: Request, res: Response) => {
+  const token = (req.query.token as string) || '';
+  const payerId = (req.query.PayerID as string) || '';
+  console.log(`[API /paypal/return] Buyer approved order token: ${token}, PayerID: ${payerId}`);
+  res.redirect(`/?paypal_return=true&token=${encodeURIComponent(token)}&PayerID=${encodeURIComponent(payerId)}`);
+});
+
+// 7c. PayPal Checkout Cancel Callback (GET)
+// When buyer cancels checkout on PayPal Sandbox, PayPal redirects here.
+apiRouter.get('/paypal/cancel', (req: Request, res: Response) => {
+  const token = (req.query.token as string) || '';
+  console.log(`[API /paypal/cancel] Buyer cancelled checkout for token: ${token}`);
+  res.redirect(`/?paypal_cancel=true&token=${encodeURIComponent(token)}`);
 });
 
 // 8a. PayPal Webhook health check & diagnostic route (GET)

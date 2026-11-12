@@ -5,6 +5,7 @@ export type RequestStatus =
   | 'guardian_blocked'
   | 'human_approved'
   | 'human_rejected'
+  | 'awaiting_paypal_approval'
   | 'payment_pending'
   | 'completed'
   | 'failed';
@@ -54,6 +55,7 @@ export interface PaymentDetails {
   orderId: string;
   captureId?: string;
   paypalStatus: string;
+  approveUrl?: string;
   payerEmail?: string;
   payerName?: string;
   amount: number;
@@ -83,6 +85,10 @@ export interface PurchaseRequest {
   guardianEvaluation?: GuardianEvaluation;
   humanDecision?: HumanDecision;
   paymentDetails?: PaymentDetails;
+  paypalOrderId?: string;
+  paypalApproveUrl?: string;
+  paypalStatus?: string;
+  paypalConversion?: CurrencyConversionInfo;
   createdAt: string;
   updatedAt: string;
   isSampleData?: boolean;

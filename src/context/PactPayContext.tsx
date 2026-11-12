@@ -24,6 +24,20 @@ export interface PayPalConfigStatus {
   baseUrl: string;
 }
 
+export interface ActiveCheckoutSession {
+  requestId: string;
+  orderId: string;
+  approveUrl: string;
+  status: 'order_created' | 'awaiting_approval' | 'approved' | 'capturing' | 'completed' | 'failed';
+  amountInr: number;
+  amountUsd: number;
+  merchant: string;
+  product: string;
+  captureId?: string;
+  payerEmail?: string;
+  error?: string;
+}
+
 interface PactPayContextType {
   requests: PurchaseRequest[];
   transactions: TransactionRecord[];
@@ -34,6 +48,8 @@ interface PactPayContextType {
   firestoreError: string | null;
   activeRequestId: string | null;
   paypalStatus: PayPalConfigStatus | null;
+  activeCheckout: ActiveCheckoutSession | null;
+  clearActiveCheckout: () => void;
   isDemoMode: boolean;
   toggleDemoMode: () => void;
   refreshPayPalStatus: () => Promise<PayPalConfigStatus>;
@@ -41,6 +57,10 @@ interface PactPayContextType {
   evaluateGuardian: (requestId: string) => Promise<GuardianEvaluation>;
   authorizeRequest: (requestId: string, note?: string) => Promise<void>;
   rejectRequest: (requestId: string, reason?: string) => Promise<void>;
+  initiatePayPalCheckout: (requestId: string) => Promise<{ orderId: string; approveUrl: string }>;
+  finalizePayPalPayment: (requestId: string, orderId: string) => Promise<TransactionRecord>;
+  cancelPayPalCheckout: (requestId: string, orderId?: string) => Promise<void>;
+  checkPayPalOrderStatus: (orderId: string) => Promise<any>;
   executePayPalPayment: (requestId: string) => Promise<TransactionRecord>;
   updatePolicy: (updated: Partial<GuardianPolicy>) => Promise<void>;
   resetToSampleData: () => Promise<void>;

@@ -354,9 +354,13 @@ export async function createPayPalOrder(params: CreateOrderParams) {
   // Store conversion metadata for audit and capture reference
   orderConversionsMap.set(orderData.id, conversion);
 
+  const approveLink = orderData.links?.find((l: any) => l.rel === 'payer-action' || l.rel === 'approve');
+  const approveUrl = approveLink?.href || `https://www.sandbox.paypal.com/checkoutnow?token=${orderData.id}`;
+
   return {
     orderId: orderData.id,
-    status: orderData.status, // e.g. 'CREATED'
+    status: orderData.status, // e.g. 'CREATED' or 'PAYER_ACTION_REQUIRED'
+    approveUrl,
     currency: 'USD',
     amount: conversion.convertedAmount,
     originalAmount: conversion.originalAmount,
@@ -518,6 +522,39 @@ export async function capturePayPalOrder(params: CaptureOrderParams) {
   capturingInProgress.add(orderId);
 
   try {
+    // Authoritative check: verify order status from PayPal before attempting capture
+    const currentOrder = await getPayPalOrderDetails(orderId);
+    if (currentOrder.status === 'COMPLETED') {
+      capturedOrders.add(orderId);
+      const captureUnit = currentOrder.purchase_units?.[0]?.payments?.captures?.[0];
+      const captureId = captureUnit?.id || `CAP-${orderId}`;
+      const executedAt = captureUnit?.create_time || currentOrder.update_time || new Date().toISOString();
+      return {
+        success: true,
+        status: 'COMPLETED' as const,
+        orderId,
+        captureId,
+        payerEmail: currentOrder.payer?.email_address || 'verified-sandbox-payer@pactpay.internal',
+        payerName: `${currentOrder.payer?.name?.given_name || ''} ${currentOrder.payer?.name?.surname || ''}`.trim() || 'PayPal Sandbox User',
+        executedAt,
+        auditProof: 'VERIFIED_PAYPAL_COMPLETED',
+        amount: Number(captureUnit?.amount?.value) || 0,
+        currency: captureUnit?.amount?.currency_code || 'USD',
+        originalAmount: orderConversionsMap.get(orderId)?.originalAmount,
+        originalCurrency: orderConversionsMap.get(orderId)?.originalCurrency || 'INR',
+        conversion: orderConversionsMap.get(orderId),
+        rawPayPalResponse: currentOrder,
+      };
+    }
+
+    if (currentOrder.status !== 'APPROVED') {
+      const approveLink = currentOrder.links?.find((l: any) => l.rel === 'payer-action' || l.rel === 'approve');
+      const approveUrl = approveLink?.href || `https://www.sandbox.paypal.com/checkoutnow?token=${orderId}`;
+      throw new Error(
+        `ORDER_NOT_APPROVED: PayPal Order ${orderId} has status "${currentOrder.status}". Payer must approve the payment on PayPal before capture can be finalized. Please complete authorization at: ${approveUrl}`
+      );
+    }
+
     // Obtain verified access token (throws if credentials are missing or invalid)
     const accessToken = await getPayPalAccessToken();
 
